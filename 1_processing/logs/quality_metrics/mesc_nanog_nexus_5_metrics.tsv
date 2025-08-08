@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_nanog_nexus_5	92850899	133852816	4379370	25147514	NA	NA	22.9	NA

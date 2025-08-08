@@ -1,0 +1,28 @@
+#!/bin/bash
+#SBATCH --job-name genomic_perturbations
+#SBATCH --output=slurm_%j.log
+#SBATCH --mem=500gb
+#SBATCH --time=72:00:00
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:a100:1
+#SBATCH --cpus-per-task=30
+source /home/mw2098/.bashrc
+conda deactivate
+conda activate bpreveal_404
+cd /n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python scripts/py/tools/generate_genomic_perturbs.py \
+--motifs_df_path tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz \
+--motif_groups_df_path tsv/genomic/motifs/regions_formatted_for_genomic_perturbations_0based.tsv.gz \
+--model_dir models/bpnet_osknz_fold1.model \
+--output_prefix tsv/genomic/motifs/genomic_pertubs_75bp_window_bpnet_osknz \
+--tasks_in_model_order oct4,sox2,klf4,nanog,zic3 \
+--region_index_column region_id \
+--motif_window_start_column motif_window_start \
+--motif_window_end_column motif_window_end \
+--motif_name_column motif \
+--motif_chrom_column chrom \
+--fasta_file ../0_setup/fa/mm10.fa \
+--input_seqlen 2032 --output_seqlen 1000 \
+--comb_max 2 --comb_min 1 \
+--nodes 24 --trials 16 \
+--summary_window 75 

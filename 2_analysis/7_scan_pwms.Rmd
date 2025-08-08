@@ -1,0 +1,1281 @@
+---
+title: 'PWM-scan for motifs'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+Here, we want to investigate, upon PWM scanning based on the PWM representation of the TF-MoDISco seqlets, whether our CWM scanning approach returns high-quality motifs. We also want to check whether the PWM-scanned false positive motifs are all poor matches (i.e. is PWM scanning totally fine at high affinities?) and whether our hit mapping thresholds appropriately find sequences of high contribution.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/7_scan_pwms"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+source("scripts/r/motif_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+library(rhdf5)
+
+#Pre-existing variables
+threads <- 5
+dir.create('memesuite/seqs', recursive = T, showWarnings = F)
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+
+motif.path<-'tsv/mapped_motifs/all_instances_curated_1based.tsv.gz'
+regions.path<-'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz'
+peaks.path<-'bed/bpreveal/bpnet_osknz_fold1_all.bed'
+
+motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4', 'Zic3' = 'zic3', 'Nanog' = 'nanog')
+output_length <- 1000
+```
+
+Here, we chose not to validate with Oct only motifs due to (1) it not having much to do with accessibility, (2) poorly bound and unreliable, (3) the fact that the mapping primarily happens on ERVs so PWM-scanning will be intrinsically off. Not a helpful or insightful analysis.
+
+# Define plotting functions
+
+```{r}
+plot_standard_heatmap_local<-function(regions.gr, sample, title="Heatmap of ChIP-seq Signals", order="sum", output_file_name=NA, reduce=F, 
+                             upstream=50, downstream=50, normalize = T, color_vec =  c("white", '#fff5f0', '#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15'), 
+                             removal_threshold=.5, normalize_threshold=0.99, reverse=F, return_only_df = F, swap_na_with_zero = F){
+  library(testit)
+  testit::assert('Reducing the GRanges and applying a custom ordering is not compatible settings.', 
+                 ifelse(reduce, ifelse((order=='sum' | order=='clustering'), TRUE, FALSE), TRUE))
+  
+  if(reverse){strand(regions.gr) <- ifelse(strand(regions.gr) == '+', '-', '+')}
+  if(reduce){regions.gr<-GenomicRanges::reduce(regions.gr)}
+  print(length(regions.gr))
+  
+  #Get signals across regions
+  mat<-standard_metapeak_matrix(regions.gr = resize(regions.gr, 1, "start"), sample=sample, upstream=upstream, downstream=downstream)
+  
+  
+  #Order region rows
+  if(order=="clustering"){
+    order_of_rows<-hclust(d = dist(mat))$order
+  }
+  else if (order=="sum"){
+    nrows<-length(mat[,1])
+    sum_by_rows_vec<-apply(mat, 1, sum) 
+    order_of_rows<-order(sum_by_rows_vec, decreasing=F)
+  }
+  else{order_of_rows<-1:length(regions.gr)}
+  
+  rownames(mat)<-1:nrow(mat)
+  mat<-mat[order_of_rows, ]
+
+  #Normalize matrix
+  if(normalize){
+    norm_mat_matrix<-normalize_standard_matrix(mat, removal_threshold =  removal_threshold, normalize_threshold = normalize_threshold)
+    fill_axis = 'norm. signal'
+  } else {
+    norm_mat_matrix<-mat
+    fill_axis = 'signal'    
+  } 
+ 
+  #Format matrix
+  mat_final_df<-format_standard_matrix_for_heatmap(matrix = norm_mat_matrix, downstream = downstream, upstream = upstream, swap_na_with_zero = swap_na_with_zero)
+
+  if(return_only_df){
+    return(mat_final_df)
+  }
+  else{
+    #Plot matrix
+    g<-ggplot()+
+      ggrastr::geom_tile_rast(data=mat_final_df, aes(x=position, y=region, fill=signal))+
+      ggtitle(title, subtitle = length(regions.gr))+
+      scale_x_continuous("Position (bp)", expand = c(0, 0))+
+      scale_y_reverse("Regions", expand = c(0, 0))+
+      scale_fill_gradientn(colors = color_vec, name = fill_axis) + 
+      # scale_fill_gradient2(low="#08306b", mid="white", high="#67000d")+
+      theme_classic()+
+      theme(legend.position="bottom", panel.grid = element_blank(), panel.border = element_blank())
+    
+    if(!is.na(output_file_name)){ggsave(filename = paste(getwd(), output_file_name, sep="/"), plot = g, width = 12, height=12)}
+    return(g)
+  }
+}
+```
+
+# Import motifs
+
+```{r}
+motifs.gr<-readr::read_tsv(motif.path) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+regions.gr<-readr::read_tsv(regions.path) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+```
+
+# Extract seqlet logos
+
+Define TF mapped motifs
+
+```{r}
+tf_seqlet_ids.df<-data.frame(
+      metacluster_name = 'pos_patterns', #Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_0', 'pattern_0', 'pattern_1', 'pattern_0'),
+      motif = c('Klf4', 'Sox2', 'Oct4-Sox2', 'Nanog', 'Zic3'),
+      oriented_strand = c('-', '+' , '+', '-', '+'),
+      task = c('klf4', 'sox2', 'oct4', 'nanog', 'zic3')
+)
+
+acc_seqlet_ids.df<-data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_5'), 
+      motif = c('Klf4', 'Oct4-Sox2', 'Sox2', 'Zic3'),
+      oriented_strand = c('+', '-' , '-', '-')
+)
+```
+
+Define 0-based seqlet-to-hit trimming alignment. This will be manually specified for simplicity from looking at coordinates at (`modiscolite/bpnet_osknz_fold1_oct4_counts/motifs.html`)
+
+```{r}
+lapply(1:nrow(tf_seqlet_ids.df), function(x){
+  df<-tf_seqlet_ids.df[x,]
+  plot<-readr::read_tsv(paste0('modiscolite/bpnet_osknz_fold1_', df$task, '_counts/seqlets.tsv')) %>%
+    dplyr::filter(metacluster_name==df$metacluster_name, pattern_name == df$pattern_name) %>%
+    .$sequence %>%
+    ggseqlogo(.)
+}) %>% wrap_plots(ncol = 1)
+
+motif_boundaries.list<-list('Oct4-Sox2' = c(9, 23), 
+                            'Sox2' = c(9, 17), 
+                            'Klf4'= c(10, 20), 
+                            'Zic3' = c(8, 18), 
+                            'Nanog'= c(8, 15))
+```
+
+Get IC logo.
+
+```{r}
+#Get seqlets
+seqlets.df.list<-lapply(1:nrow(tf_seqlet_ids.df), function(x){
+  df<-tf_seqlet_ids.df[x,]
+  seqlets.df<-readr::read_tsv(paste0('modiscolite/bpnet_osknz_fold1_', df$task, '_counts/seqlets.tsv')) %>%
+    dplyr::filter(metacluster_name==df$metacluster_name, pattern_name == df$pattern_name) %>%
+    dplyr::mutate(sequence = stringr::str_sub(sequence, motif_boundaries.list[[df$motif]][1], motif_boundaries.list[[df$motif]][2]))
+  
+  #Account for strand
+  if(df$oriented_strand == '+') {
+    seqlets.df<-seqlets.df %>%
+      dplyr::mutate(seq = sequence)
+  } else {
+    seqlets.df<-seqlets.df %>%
+      dplyr::mutate(strand = ifelse(strand == '+', '-', '+'),
+                    seq = as.character(reverseComplement(DNAStringSet(sequence))))
+  }
+  print(ggseqlogo(seqlets.df$seq))
+  return(seqlets.df)
+})
+names(seqlets.df.list)<-tf_seqlet_ids.df$motif
+
+#Get IC content
+ic.list<-lapply(tf_seqlet_ids.df$motif, function(x){
+  seqs<-seqlets.df.list[[x]]$seq
+  seq_ic<-ppm_to_ic(seq_to_ppm(seqs),  bg_freq = c(.3, .2, .2, .3))
+  readr::write_lines(seqs, file = paste0('memesuite/seqs/', x, '.txt'))
+  return(seq_ic)
+})
+names(ic.list)<-tf_seqlet_ids.df$motif
+```
+
+
+
+
+
+
+# Impute Oct4/Sox2 affinity components from Oct4-Sox2 heterodimer motif
+
+It could be useful to know "what is the individual sequence match of the Oct4 and Sox2 component of the Oct4-Sox2 motif"
+
+```{r}
+# os_seqlet.df<-seqlets.df.list$`Oct4-Sox2`
+# os_motifs.gr<-motifs.gr %>% plyranges::filter(motif == 'Oct4-Sox2')
+# ic<-ic.list[['Oct4-Sox2']]
+# oct4_ic<-ic[, 1:8]
+# sox2_ic<-ic[, 9:15]
+# 
+# #Get match scores for each component
+# oct4_seqlet_match_scores<-mclapply(os_seqlet.df$seq, function(y) get_sequence_ic(ic = oct4_ic, seq = stringr::str_sub(y, 1, 8)), mc.cores = 8) %>% unlist()
+# sox2_seqlet_match_scores<-mclapply(os_seqlet.df$seq, function(y) get_sequence_ic(ic = sox2_ic, seq = stringr::str_sub(y, 9, 15)), mc.cores = 8) %>% unlist()
+# os_motifs.gr$oct4_match_scores<-mclapply(os_motifs.gr$seq, function(y) get_sequence_ic(ic = oct4_ic, seq = stringr::str_sub(y, 1, 8)), mc.cores = 8) %>% unlist()
+# os_motifs.gr$sox2_match_scores<-mclapply(os_motifs.gr$seq, function(y) get_sequence_ic(ic = sox2_ic, seq = stringr::str_sub(y, 9, 15)), mc.cores = 8) %>% unlist()
+# 
+# #Get quantiles based on seqlet distributions
+# oct4_match_score_dist<-ecdf(oct4_seqlet_match_scores)
+# sox2_match_score_dist<-ecdf(sox2_seqlet_match_scores)
+# os_motifs.gr$oct4_match_scores_q<-oct4_match_score_dist(os_motifs.gr$oct4_match_scores)
+# os_motifs.gr$sox2_match_scores_q<-sox2_match_score_dist(os_motifs.gr$sox2_match_scores)
+# 
+# #Export OS match scores based on mapped motifs
+# os_motifs.gr %>%
+#   as.data.frame %>%
+#   dplyr::select(motif, seq, seq_match_quantile, oct4_match_scores_q, sox2_match_scores_q) %>%
+#   dplyr::rename(oct4sox2_sequence_quantile = seq_match_quantile, 
+#                 oct4_sequence_quantile = oct4_match_scores_q, 
+#                 sox2_sequence_quantile = sox2_match_scores_q) %>%
+#   readr::write_tsv(., 'tsv/mapped_motifs/Oct4Sox2_sequences_w_subcomponent_affinities.tsv.gz')
+```
+
+We analyzed this and found:
+
+1. Higher Sox2 in OS affinity was associated with more pioneering
+2. Higher Oct4 in OS affinity was associated with stronger residence time dip in accessibility profiles (Pampari 2025)
+
+Could look more at this, but wasnt focus of paper.
+
+# Convert sequences to MEME format
+
+```{bash, eval = F}
+ml meme/5.5.3
+sites2meme memesuite/seqs > memesuite/custom_meme.txt
+```
+
+# Run FIMO on .fa sequences
+
+Export all regions to .fa file
+
+```{r, eval = F}
+regions.gr<-rtracklayer::import('bed/mapped_motifs/all_islands_curated_0based_sized_to_input.bed')
+regions.seq<-getSeq(bsgenome, regions.gr)
+names(regions.seq)<-paste0(seqnames(regions.gr), ':', start(regions.gr), '-', end(regions.gr)) #FIMO works with 1-based coords
+writeXStringSet(regions.seq, 'memesuite/all_islands_curated_seqs.fa')
+```
+
+Run FIMO
+
+```{r}
+cmds_all.vec<-c('#!bin/bash', 'module load meme', 
+                'fimo --oc memesuite --skip-matched-sequence --parse-genomic-coord --max-strand --thresh 0.001 --max-stored-scores 10000000 memesuite/custom_meme.txt memesuite/all_islands_curated_seqs.fa > memesuite/fimo_matches.tsv')
+writeLines(cmds_all.vec, 'scripts/scan_pwms_using_fimo.sh')
+```
+
+Run the code.
+
+# Calculate PWM match score for each motif set
+
+Reimplement quantile measuring for PWM scanning scores. 
+
+```{r, eval = F}
+#Import PWM-matched motifs and assign information to them
+pwm_matches.df<-readr::read_tsv('memesuite/fimo_matches.tsv') 
+pwm_matches.gr<-pwm_matches.df %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, ignore.strand = F, 
+                           starts.in.df.are.0based = F, seqnames.field = 'sequence_name') %>%
+  plyranges::mutate(seq = getSeq(bsgenome, ., as.character = T),
+                    motif = motif_id)  %>%
+  plyranges::filter(motif %in% tf_seqlet_ids.df$motif)
+
+#Reimplement quantile measuring for PWM scanning scores. 
+all_motifs.list<-lapply(tf_seqlet_ids.df$motif, function(x){
+  message(x)
+  
+  #Call each set of motifs
+  seqlet.df<-seqlets.df.list[[x]] 
+  motif.gr<-motifs.gr %>% plyranges::filter(motif == x)
+  pwm.gr<-pwm_matches.gr %>% plyranges::filter(motif == x) %>% unique()
+  
+  #Get log2-derived IC
+  ic<-ic.list[[x]]
+  
+  #Get PWM scores
+  message('getting seqlets...')
+  seqlet.df$pwm_match_score<-mclapply(seqlet.df$seq, function(y) get_sequence_ic(ic = ic, seq = y), mc.cores = 8) %>% unlist()
+  message('getting motifs...')
+  motif.gr$pwm_match_score<-mclapply(motif.gr$seq, function(y) get_sequence_ic(ic = ic, seq = y), mc.cores = 8) %>% unlist()
+  message('getting pwms...')
+  pwm.gr$pwm_match_score<-mclapply(pwm.gr$seq, function(y) get_sequence_ic(ic = ic, seq = y), mc.cores = 8) %>% unlist()
+  
+  #Get quantiles based on seqlet distributions
+  match_score_dist<-ecdf(seqlet.df$pwm_match_score)
+  
+  seqlet.df$pwm_match_score_q<-match_score_dist(seqlet.df$pwm_match_score)
+  motif.gr$pwm_match_score_q<-match_score_dist(motif.gr$pwm_match_score)
+  pwm.gr$pwm_match_score_q<-match_score_dist(pwm.gr$pwm_match_score)
+    
+  #Export
+  return(list(seqlet = seqlet.df, motifs = motif.gr, pwms = pwm.gr))
+})
+names(all_motifs.list)<-tf_seqlet_ids.df$motif
+saveRDS(all_motifs.list, 'rdata/all_motifs_with_pwm_scores.list.rds')
+```
+
+# Compare PWM and CWM
+
+Show that the extra 400K motifs mapped by PWM scanning aren't actually mostly bound, lmao.
+
+```{r}
+all_motifs.list<-readRDS('rdata/all_motifs_with_pwm_scores.list.rds')
+```
+
+
+
+
+
+## Generate heatmaps
+
+If needed, we can generate coverage showing that lots of PWM hits are false positives given the precise footprinting of ChIP-nexus data. 
+
+```{r, eval = F}
+dir.create(paste0(figure_filepath,'/pwm_vs_cwm/'), recursive = T, showWarnings = F)
+
+# lapply(seq(0.1, .9, .1), function(rmt){
+#   lapply(c(seq(0.5, .9, .1), seq(.91, .99, .02)), function(nmt){
+#     
+lapply(c(.5), function(rmt){
+  lapply(c(.99), function(nmt){
+    if(nmt>rmt){
+      filler<-lapply(c('Oct4-Sox2','Sox2','Nanog','Klf4','Zic3'), function(x){
+        message(x)
+        
+        task<-motif_to_task.list[[x]]
+        motif.df<-motifs.gr %>% as.data.frame %>% 
+          dplyr::filter(motif==x)
+        
+        pwm.gr<-all_motifs.list[[x]]$pwm 
+        motif.gr <- motif.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+        
+        pwm_nexus_heatmap.plot<-plot_standard_heatmap_local(regions.gr = GenomicRanges::resize(pwm.gr, 1, 'center'),# %>% head(n=1000), 
+                                                            sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Task ChIP-nexus', 
+                                                            order = 'sum', upstream = 150, downstream = 151, removal_threshold = rmt, normalize_threshold = nmt, 
+                                                            color_vec = c('white','#cb181d','#7f0000'), swap_na_with_zero = T) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+        
+        cwm_nexus_heatmap.plot<-plot_standard_heatmap_local(regions.gr = GenomicRanges::resize(motif.gr, 1, 'center'),# %>% head(n=1000), 
+                                                            sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Task ChIP-nexus', 
+                                                            order = 'sum', upstream = 150, downstream = 151, removal_threshold = rmt, normalize_threshold = nmt, 
+                                                            color_vec = c('white','#cb181d','#7f0000'), swap_na_with_zero = T) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+        
+        nexus_heatmap.plot<-pwm_nexus_heatmap.plot + cwm_nexus_heatmap.plot + plot_layout(nrow = 1)
+        ggsave(paste0(figure_filepath, '/pwm_vs_cwm/pwm_vs_cwm_heatmaps_', x, '_', rmt, '_', nmt, '_all.png'), nexus_heatmap.plot, height = 12, width = 6)
+        ggsave(paste0(figure_filepath, '/pwm_vs_cwm/pwm_vs_cwm_heatmaps_', x, '_', rmt, '_', nmt, '_all.pdf'), nexus_heatmap.plot, height = 12, width = 6)
+      })
+    }
+  })
+})
+
+
+```
+
+## Generate ranked plots
+
+```{r}
+ranked_binding.plots<-mclapply(names(all_motifs.list), function(x){
+  message(x)
+  motif.df<-motifs.gr %>% as.data.frame %>% 
+    dplyr::filter(motif==x)
+  
+  #Mark which model hits also overlap with PWM hits and measure binding levels
+  pwm.gr<-all_motifs.list[[x]]$pwm %>%
+    plyranges::filter(!overlapsAny(., motif.df %>% makeGRangesFromDataFrame(), ignore.strand = T)) %>%
+    plyranges::mutate(binding_signal = regionSums(GenomicRanges::resize(., 75, 'center'), paste0('bw/mesc_', motif_to_task.list[[x]], '_nexus_combined_grouped.bw')))
+  
+  motif.gr <- motif.df %>% makeGRangesFromDataFrame(keep.extra.columns = T) %>%
+    plyranges::mutate(rank_type = ifelse(overlapsAny(., all_motifs.list[[x]]$pwm, ignore.strand = T), 'both', 'model_only'),
+                      binding_signal = regionSums(GenomicRanges::resize(., 75, 'center'), paste0('bw/mesc_', motif_to_task.list[[x]], '_nexus_combined_grouped.bw')))
+  
+  #Rank motifs by binding levels
+  ranked_motifs.df<- motif.gr %>%
+    as.data.frame %>% 
+    dplyr::group_by(rank_type) %>%
+    dplyr::arrange(desc(binding_signal)) %>% 
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  ranked_pwms.df<-pwm.gr %>%
+    as.data.frame %>% 
+    dplyr::arrange(desc(binding_signal)) %>%
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  rankings.df<-rbind(
+    ranked_motifs.df %>% dplyr::select(bind_ranked_row, bind_ranked_prop, binding_signal, rank_type),
+    ranked_pwms.df %>% dplyr::mutate(rank_type = 'pwm_only') %>% dplyr::select(bind_ranked_row, bind_ranked_prop, binding_signal, rank_type)
+  ) %>%
+    dplyr::arrange(desc(rank_type))
+
+  bind.plot<-ggplot(rankings.df, aes(x = bind_ranked_row, y = binding_signal, color = rank_type))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    ggrastr::geom_point_rast(size = .5)+
+    ggtitle(x)+
+    theme_classic()
+  bind.plot
+
+}, mc.cores = 6) %>% wrap_plots(nrow = 1)
+
+ggsave(paste0(figure_filepath, '/ranked_binding_all.png'), ranked_binding.plots, height = 3, width = 24)
+ggsave(paste0(figure_filepath, '/ranked_binding_all.pdf'), ranked_binding.plots, height = 3, width = 24)
+```
+
+Replot with log-reads
+
+```{r}
+ranked_binding.plots<-mclapply(names(all_motifs.list), function(x){
+  message(x)
+  motif.df<-motifs.gr %>% as.data.frame %>% 
+    dplyr::filter(motif==x)
+  
+  #Mark which model hits also overlap with PWM hits and measure binding levels
+  pwm.gr<-all_motifs.list[[x]]$pwm %>%
+    plyranges::filter(!overlapsAny(., motif.df %>% makeGRangesFromDataFrame(), ignore.strand = T)) %>%
+    plyranges::mutate(binding_signal = regionSums(GenomicRanges::resize(., 75, 'center'), paste0('bw/mesc_', motif_to_task.list[[x]], '_nexus_combined_grouped.bw')))
+  
+  motif.gr <- motif.df %>% makeGRangesFromDataFrame(keep.extra.columns = T) %>%
+    plyranges::mutate(rank_type = ifelse(overlapsAny(., all_motifs.list[[x]]$pwm, ignore.strand = T), 'both', 'model_only'),
+                      binding_signal = regionSums(GenomicRanges::resize(., 75, 'center'), paste0('bw/mesc_', motif_to_task.list[[x]], '_nexus_combined_grouped.bw')))
+  
+  #Rank motifs by binding levels
+  ranked_motifs.df<- motif.gr %>%
+    as.data.frame %>% 
+    dplyr::group_by(rank_type) %>%
+    dplyr::arrange(desc(binding_signal)) %>% 
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  ranked_pwms.df<-pwm.gr %>%
+    as.data.frame %>% 
+    dplyr::arrange(desc(binding_signal)) %>%
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  rankings.df<-rbind(
+    ranked_motifs.df %>% dplyr::select(bind_ranked_row, bind_ranked_prop, binding_signal, rank_type),
+    ranked_pwms.df %>% dplyr::mutate(rank_type = 'pwm_only') %>% dplyr::select(bind_ranked_row, bind_ranked_prop, binding_signal, rank_type)
+  ) %>%
+    dplyr::arrange(desc(rank_type))
+
+  bind.plot<-ggplot(rankings.df, aes(x = bind_ranked_row, y = log(binding_signal), color = rank_type))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    ggrastr::geom_point_rast(size = .5)+
+    ggtitle(x)+
+    theme_classic()
+  bind.plot
+
+}, mc.cores = 6) %>% wrap_plots(nrow = 1)
+
+ggsave(paste0(figure_filepath, '/ranked_binding_all_log.png'), ranked_binding.plots, height = 3, width = 24)
+ggsave(paste0(figure_filepath, '/ranked_binding_all_log.pdf'), ranked_binding.plots, height = 3, width = 24)
+```
+
+# Summarize impacts mapping low-affinity motifs
+
+What do the scoring distributions of mapped PWMs/CWMs look like?
+
+```{r}
+all_motifs.list<-readRDS('rdata/all_motifs_with_pwm_scores.list.rds')
+```
+
+```{r}
+# patterns_of_interest<-c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_5')
+patterns_of_interest<-c('pattern_1')
+## Create histograms of affinity differences
+
+os_all_showcase.df<-rbind(
+  all_motifs.list$`Oct4-Sox2`$pwms %>%
+    as.data.frame() %>% 
+    dplyr::rename(seq_score = pwm_match_score) %>%
+    dplyr::mutate(type = 'pwm') %>%
+    dplyr::select(type, seq_score, seq),
+  all_motifs.list$`Oct4-Sox2`$motifs %>% 
+    as.data.frame %>%
+    dplyr::filter(mapping_state != 'bind') %>%
+    dplyr::mutate(type = 'cwm') %>%
+    dplyr::rename(seq_score = pwm_match_score) %>%
+    dplyr::select(type, seq_score, seq) 
+) %>% dplyr::arrange(type)
+os_all_showcase.df$type %>% table()
+
+histogram<-ggplot(os_all_showcase.df, aes(x = seq_score, fill = type))+
+  geom_histogram(position = 'identity', alpha = .2)+
+  theme_classic()
+
+#Select CWM-only motifs and subsample based on selected thresholds.
+sampled_motif_n <- 5000
+cwm_only.df<-os_all_showcase.df %>% dplyr::filter(type=='cwm') 
+cwm_only.df<-cwm_only.df %>%
+  arrange(desc(seq_score))  %>%
+  dplyr::mutate(class = c(rep('top', sampled_motif_n), 
+                          rep('none', floor((nrow(cwm_only.df)-(3*sampled_motif_n))/2)),
+                          rep('mid', sampled_motif_n),
+                          rep('none', floor((nrow(cwm_only.df)-(3*sampled_motif_n))/2)),
+                          rep('bottom', sampled_motif_n)))
+
+cwm_histogram<-ggplot(cwm_only.df, aes(x = seq_score, fill = class))+
+  geom_histogram(position = 'stack', alpha = .2)+
+  theme_classic()
+
+lower.plot<-os_all_showcase.df %>% dplyr::filter(type == 'cwm', seq_score<9) %>% .$seq %>% ggseqlogo()
+higher.plot<-os_all_showcase.df %>% dplyr::filter(type == 'cwm', seq_score>12) %>% .$seq %>% ggseqlogo()
+```
+
+Recollect CWM scores that were filtered out before in the curation step. But do it properly and remove redundant coordinate.s 
+
+```{r}
+gr<-readr::read_tsv('modiscolite/atac_wt_fold1_atac_counts/hits.tsv') %>% 
+                                  dplyr::filter(pattern_name %in% c('pattern_1'), metacluster_name == 'pos_patterns') %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T)
+
+#Import peaks and reduce them to a deduplicated state to get general peak regions.
+peaks.gr<-rtracklayer::import(peaks.path) %>% 
+  GenomicRanges::resize(., 2114, fix = 'center') %>% 
+  GenomicRanges::reduce(., ignore.strand = T) %>% 
+  plyranges::mutate(region_id_tmp = 1:length(.))
+
+#Find overlaps between motifs and peaks
+ov<-findOverlaps(gr, peaks.gr, ignore.strand = T)
+
+#Assign temporary region ID for deduplication
+gr$region_id_tmp<-NA
+gr$region_id_tmp[ov@from]<-peaks.gr$region_id_tmp[ov@to]
+
+#Filter any motif that doesn't fit into peaks. This means that the motif is mapped on the edges of the general, temporary region_id
+gr<-gr %>% plyranges::filter(!is.na(gr$region_id_tmp))
+gr<-remove_palindromic_motifs_from_bpnet_instances(dfi = gr, pattern_to_filter = 'pattern_1', 
+                                                                    chrom_name = 'seqnames', start_name = 'start', end_name = 'end', 
+                                                                    value_name = 'contrib_match', motif_name = 'pattern_name',
+                                                                    region_name = 'region_id_tmp')
+  
+jaccard_score_histogram<-ggplot(gr %>% as.data.frame(), aes(x = contrib_match))+
+  geom_histogram(position = 'identity', alpha = .2)+
+  theme_classic()
+```
+
+Finish plotting everything.
+
+```{r}
+metaplots<-histogram +cwm_histogram + lower.plot + higher.plot + jaccard_score_histogram + plot_layout(nrow = 1)
+ggsave(paste0(figure_filepath, '/metaplot_of_histogram.png'), metaplots, height = 3, width = 20)
+ggsave(paste0(figure_filepath, '/metaplot_of_histogram.pdf'), metaplots, height = 3, width = 20)
+
+
+# #Print scores from the for Btbd11 enhancer
+# readr::read_tsv('modiscolite/atac_wt_fold1_atac_counts/hits.tsv') %>% 
+#                                   dplyr::filter(pattern_name %in% c('pattern_1'), metacluster_name == 'pos_patterns') %>%
+#   makeGRangesFromDataFrame(keep.extra.columns = T) %>%
+#   plyranges::filter(overlapsAny(., GRanges('chr10', IRanges(85539627, 85539712))))
+# 
+# all_motifs.list$`Oct4-Sox2`$motifs %>%
+#   plyranges::filter(overlapsAny(., GRanges('chr10', IRanges(85539627, 85539712))))
+```
+
+
+Some busywork where I validate the scope of how our low-affinity motifs were comparing to Avsec results. How does model differences change mapping approaches?
+
+```{r}
+# 
+# 
+# os_all_showcase.df<-rbind(
+#   readr::read_tsv('modiscolite/atac_wt_fold1_atac_profile/hits.tsv') %>% 
+#     dplyr::filter(pattern_name %in% c('pattern_2'), metacluster_name == 'pos_patterns')  %>%
+#     dplyr::filter(seq_match>0) %>%
+#     # dplyr::rename(score_q = seq_match_quantile) %>% 
+#     dplyr::mutate(type = 'default'),  
+#   readr::read_tsv('modiscolite/atac_wt_fold1_atac_profile/hits.tsv') %>% 
+#     dplyr::filter(pattern_name %in% c('pattern_2'), metacluster_name == 'pos_patterns')  %>%
+#     # dplyr::select(seq_match_quantile) %>%
+#     # dplyr::rename(score_q = seq_match_quantile) %>% 
+#     dplyr::mutate(type = 'new')  
+# )
+# os_all_showcase.df$type %>% table()
+# 
+# 
+# avsec_os.plot<-rtracklayer::import('/n/projects/mw2098/publications/2019_avsec_bpnet/data/bed/seqlet_coordinates.bed') %>% plyranges::filter(grepl('Oct4_0', name)) %>% getSeq(bsgenome, ., as.character = T) %>% ggseqlogo(.) + ggtitle('Avsec OS motif')
+# acc_os.plot<-readr::read_tsv('modiscolite/atac_wt_fold1_atac_counts/hits.tsv') %>% 
+#   dplyr::filter(grepl('pattern_1', pattern_name), metacluster_name=='pos_patterns') %>% 
+#   makeGRangesFromDataFrame() %>% getSeq(bsgenome, ., as.character = T) %>%
+#   ggseqlogo(.) + ggtitle('Acc. OS motif')
+# avsec_os.plot + acc_os.plot
+# 
+# 
+# os_chrombpnet_cwm.df<-readr::read_tsv('modiscolite/bpnet_osknz_fold1_oct4_counts/hits.tsv') %>% 
+#   dplyr::filter(pattern_name == 'pattern_0', metacluster_name == 'pos_patterns') %>%
+#   makeGRangesFromDataFrame(keep.extra.columns = T) %>%
+#   plyranges::filter(overlapsAny(., motifs.gr %>% plyranges::filter(motif=='Oct4-Sox2'), ignore.strand = T))
+# 
+# ggplot(os_chrombpnet_cwm.df %>% as.data.frame(), aes(x = contrib_match_quantile))+
+#   geom_density()
+```
+
+# Showcase Jaccard similarity
+
+## Showcase PWM and CWM scores
+
+```{r}
+tf_seqlet_ids.df<-data.frame(
+      metacluster_name = 'pos_patterns', #Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_0', 'pattern_0', 'pattern_1', 'pattern_0'),
+      motif = c('Klf4', 'Sox2', 'Oct4-Sox2', 'Nanog', 'Zic3'),
+      oriented_strand = c('-', '+' , '+', '-', '+'),
+      task = c('klf4', 'sox2', 'oct4', 'nanog', 'zic3')
+)
+
+bind_logos.plot<-lapply(1:nrow(tf_seqlet_ids.df), function(x){
+  pwm = rhdf5::h5read(paste0('modiscolite/bpnet_osknz_fold1_', tf_seqlet_ids.df$task[x],'_counts/modisco.h5'), paste0('pos_patterns/', tf_seqlet_ids.df$pattern_name[x], '/sequence'))
+  if(tf_seqlet_ids.df$oriented_strand[x]=='-'){
+   pwm = pwm[4:1, ncol(pwm):1] #reverse_complement and custom index
+  }
+  rownames(pwm)<-c('A','C','G','T')
+  pwm.plot<-ggseqlogo(pwm) + ggtitle('pwm', subtitle = tf_seqlet_ids.df$motif[x])
+  
+  cwm = rhdf5::h5read(paste0('modiscolite/bpnet_osknz_fold1_', tf_seqlet_ids.df$task[x],'_counts/modisco.h5'), paste0('pos_patterns/', tf_seqlet_ids.df$pattern_name[x], '/contrib_scores'))
+  if(tf_seqlet_ids.df$oriented_strand[x]=='-'){
+   cwm = cwm[4:1, ncol(cwm):1] #reverse_complement and custom index
+  }
+  rownames(cwm)<-c('A','C','G','T')
+  cwm.plot<-ggseqlogo(cwm, method = 'custom', seq_type='dna') + ggtitle('cwm', subtitle = tf_seqlet_ids.df$motif[x])
+ 
+  total_plot<-pwm.plot + cwm.plot
+}) %>% wrap_plots(ncol = 1) + plot_annotation(title = 'bpnet_osknz')
+bind_logos.plot
+ggsave(paste0(figure_filepath, '/bind_logos.png'), bind_logos.plot, height = 15, width = 10)
+ggsave(paste0(figure_filepath, '/bind_logos.pdf'), bind_logos.plot, height = 15, width = 10)
+
+acc_logos.plot<-lapply(1:nrow(acc_seqlet_ids.df), function(x){
+  pwm = rhdf5::h5read(paste0('modiscolite/atac_wt_fold1_atac_counts/modisco.h5'), paste0('pos_patterns/', acc_seqlet_ids.df$pattern_name[x], '/sequence'))
+  if(acc_seqlet_ids.df$oriented_strand[x]=='-'){
+   pwm = pwm[4:1, ncol(pwm):1] #reverse_complement and custom index
+  }
+  rownames(pwm)<-c('A','C','G','T')
+  pwm.plot<-ggseqlogo(pwm) + ggtitle('pwm', subtitle = acc_seqlet_ids.df$motif[x])
+  
+  cwm = rhdf5::h5read(paste0('modiscolite/atac_wt_fold1_atac_counts/modisco.h5'), paste0('pos_patterns/', acc_seqlet_ids.df$pattern_name[x], '/contrib_scores'))
+  if(acc_seqlet_ids.df$oriented_strand[x]=='-'){
+   cwm = cwm[4:1, ncol(cwm):1] #reverse_complement and custom index
+  }
+  rownames(cwm)<-c('A','C','G','T')
+  cwm.plot<-ggseqlogo(cwm, method = 'custom', seq_type='dna') + ggtitle('cwm', subtitle = acc_seqlet_ids.df$motif[x])
+ 
+  total_plot<-pwm.plot + cwm.plot
+}) %>% wrap_plots(ncol = 1) + plot_annotation(title = 'atac_wt')
+acc_logos.plot
+
+ggsave(paste0(figure_filepath, '/acc_logos.png'), acc_logos.plot, height = 15, width = 10)
+ggsave(paste0(figure_filepath, '/acc_logos.pdf'), acc_logos.plot, height = 15, width = 10)
+```
+
+## Showcase Jaccard of OS motif
+
+Import PWM and CWM directly from modisco.h5. Remember, this is in the wrong orientation to start.
+
+```{r}
+ppm = rhdf5::h5read("modiscolite/atac_wt_fold1_atac_counts/modisco.h5", "pos_patterns/pattern_1/sequence")
+ppm = ppm[4:1, 22:8] #reverse_complement and custom index
+rownames(ppm)<-c('A','C','G','T')
+pwm.plot<-ggseqlogo(ppm) + ggtitle('pwm')
+
+cwm = rhdf5::h5read("modiscolite/atac_wt_fold1_atac_counts/modisco.h5", "pos_patterns/pattern_1/contrib_scores")
+cwm = cwm[4:1, 22:8] #reverse_complement and custom index
+rownames(cwm)<-c('A','C','G','T')
+cwm.plot<-ggseqlogo(cwm, method='custom', seq_type='dna') + ggtitle('cwm')
+
+os_plot<-pwm.plot + cwm.plot
+os_plot
+```
+
+How do these values get scored? Make a graphic with the Btbd11 enhancer. Note that Jaccard isn't exactly right, since it doesn't really calculate in a "genomic position" vector like format. This is a proxy so that people get a sense of what is happening within the algorithm.
+
+```{r}
+os.gr<-GRanges('chr10', IRanges(start = 85539667, end = 85539681))
+print(getSeq(bsgenome, os.gr))
+os_seq<-getSeq(bsgenome, os.gr) %>% reverseComplement(.) %>% as.character(.)
+print(os_seq)
+os_seq_1he<-one_hot_encode_DNA(os_seq)
+os_acc_contrib<-rev(standard_metapeak_matrix(os.gr, 'shap/atac_wt_fold1_atac_counts.bw', keep_region_coordinates = T))
+os_acc_contrib
+
+pwm.mat<-ppm_to_pwm(ppm = ppm, bg_freq = c(.3, .2, .2,.3))
+pwm_match.mat<-one_hot_encode_DNA(os_seq) * pwm.mat
+pwm_match.vec<-apply(pwm_match.mat, 2, sum) %>% unlist()
+print(pwm_match.vec)
+print(round(pwm_match.vec/sum(pwm_match.vec), 2))
+
+cwm.mat<-cwm
+contrib.mat<-lapply(1:ncol(os_seq_1he), function(x) os_seq_1he[,x]*os_acc_contrib[x]) %>% as.data.frame()
+colnames(contrib.mat)<-NULL
+contrib.mat
+
+#Reimplementing the algorithm from bpreveal.internal.jaccard in a basic way.
+cwm.vec<-cwm.mat %>% as.numeric()
+contrib.vec<-contrib.mat %>% as.matrix() %>% as.numeric()
+
+#Calculate signs of contrib
+cwm.sign.vec<-lapply(cwm.vec, function(x) ifelse(x>=0, 1, -1)) %>% unlist()
+contrib.sign.vec<-lapply(contrib.vec, function(x) ifelse(x>=0, 1, -1)) %>% unlist()
+
+#calculate scaled factor
+scalefactor<-sum(cwm.mat)/sum(os_acc_contrib)
+
+#Calculate union and intersections
+numer.mat<-lapply(1:length(cwm.vec), function(x){min(abs(cwm.vec[x]), abs(contrib.vec[x]*scalefactor))*contrib.sign.vec[x]*cwm.sign.vec[x]}) %>% 
+  unlist() %>%
+  matrix(data = ., nrow = 4, ncol(cwm.mat), byrow = F)
+
+denom.mat<-lapply(1:length(cwm.vec), function(x){max(abs(cwm.vec[x]), abs(contrib.vec[x]))}) %>% 
+  unlist() %>% 
+  matrix(data = ., nrow = 4, ncol = ncol(cwm.mat), byrow = F)
+
+jacc_by_base<-colSums(numer.mat/denom.mat)
+print(round(jacc_by_base, 2))
+jacc_ratio<-c(jacc_by_base/sum(jacc_by_base))
+print(round(jacc_ratio, 2))
+
+jacc<-sum(numer.mat)/sum(denom.mat)
+print(jacc)
+```
+
+# Examine distributions
+
+```{r}
+all_motifs.list<-readRDS('rdata/all_motifs_with_pwm_scores.list.rds')
+```
+
+Examine total motifs overlapped.
+
+```{r}
+motif_counts.df<-lapply(tf_seqlet_ids.df$motif, function(x){
+  message(x)
+  
+  motif.gr<-all_motifs.list[[x]]$motifs
+  pwm.gr<-all_motifs.list[[x]]$pwm
+  
+  ov<-findOverlaps(motif.gr, pwm.gr, ignore.strand = T)
+  motif.gr$pwm_overlap_state<-'bpnet_only'
+  motif.gr$pwm_overlap_state[unique(ov@from)]<-'both'
+  pwm.gr$pwm_overlap_state<-'pwm_only'
+  pwm.gr$pwm_overlap_state[unique(ov@to)]<-'both'
+  
+  data.frame(motif = x, pwm_only = length(pwm.gr %>% plyranges::filter(pwm_overlap_state=='pwm_only')),
+             both = length(motif.gr %>% plyranges::filter(pwm_overlap_state=='both')),
+             cwm_only = length(motif.gr %>% plyranges::filter(pwm_overlap_state=='bpnet_only')))
+  
+}) %>% rbindlist() %>%
+  dplyr::mutate(motif = factor(motif, levels = names(motif_to_task.list))) %>%
+  tidyr::pivot_longer(cols = c(both, cwm_only, pwm_only), names_to = 'mapping', values_to = 'freq')
+
+motif_counts.plot<-ggplot(motif_counts.df, aes(x = motif, y = freq, fill = mapping))+
+  geom_bar(stat = 'identity', position = 'dodge') + 
+  coord_flip()+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/mapping_counts.png'), motif_counts.plot, height = 4, width = 4)
+ggsave(paste0(figure_filepath, '/mapping_counts.pdf'), motif_counts.plot, height = 4, width = 4)
+```
+
+Report counts
+
+```{r}
+motif_counts.df %>% dplyr::group_by(mapping) %>%
+  dplyr::summarize(counts = sum(freq))
+
+df<-motif_counts.df %>% dplyr::group_by(mapping) %>%
+  dplyr::summarize(counts = sum(freq))
+value<-(df %>% dplyr::filter(mapping == 'both') %>% .$counts) / ((df %>% dplyr::filter(mapping == 'both') %>% .$counts) + (df %>% dplyr::filter(mapping == 'cwm_only') %>% .$counts))
+message(value, ' rate of CWM belonging to also PWM motifs')
+```
+
+Examine sequence match distributions
+
+```{r}
+overlap_dist.plot.list<-lapply(tf_seqlet_ids.df$motif, function(x){
+  message(x)
+  
+  motif.gr<-all_motifs.list[[x]]$motifs
+  pwm.gr<-all_motifs.list[[x]]$pwm
+  
+  ov<-findOverlaps(motif.gr, pwm.gr, ignore.strand = T)
+  motif.gr$pwm_overlap_state<-'bpnet_only'
+  motif.gr$pwm_overlap_state[unique(ov@from)]<-'both'
+  pwm.gr$pwm_overlap_state<-'pwm_only'
+  pwm.gr$pwm_overlap_state[unique(ov@to)]<-'both'
+  
+  motif.gr$pwm_overlap_state %>% table
+  pwm.gr$pwm_overlap_state %>% table
+  
+  combined.df<-rbind(
+    motif.gr %>% as.data.frame %>% dplyr::select(motif, pwm_match_score, pwm_overlap_state),
+    pwm.gr %>% as.data.frame %>% dplyr::select(motif, pwm_match_score, pwm_overlap_state) %>% dplyr::filter(pwm_overlap_state=='pwm_only')
+  ) %>% 
+    dplyr::mutate(pwm_overlap_state = factor(pwm_overlap_state, levels = c('bpnet_only','both','pwm_only')))
+  
+  combined_count_label<-combined.df %>% dplyr::group_by(pwm_overlap_state) %>% dplyr::summarize(counts = dplyr::n()) %>%
+    dplyr::mutate(count_label = paste0(pwm_overlap_state, ': ', counts)) %>%
+    .$count_label %>% paste0(., collapse = '\n')
+  print(combined_count_label)
+  
+  g<-ggplot(combined.df, aes(x = pwm_match_score, fill = pwm_overlap_state))+
+    geom_density(position = 'identity', alpha = .8)+
+    annotate(geom = 'text', x = -Inf, y = Inf, label = combined_count_label, vjust = 1, hjust = 0)+
+    scale_x_continuous(name = 'PWM match score')+
+    scale_y_continuous(name = 'Density')+
+    scale_fill_manual(name = 'Motif type', values = c('#b2182b', '#c2a5cf', '#2166ac'))+
+    ggtitle(x)+
+    theme_classic()
+  print(g)
+  
+  return(g)
+})
+overlap_dist.plot.list
+```
+
+# Plot ranked contribution 
+
+Get top 2K PWM matches that do not overlap with mapped hits.
+
+```{r}
+nonmotif_contrib.df<-lapply(names(all_motifs.list), function(x){
+  message(x)
+  
+  motif.gr<-motifs.gr %>% as.data.frame %>% dplyr::filter(motif==x) %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+  pwm.gr<-all_motifs.list[[x]]$pwm
+  
+  ov<-findOverlaps(motifs.gr, pwm.gr, ignore.strand = T)
+  pwm.gr$pwm_overlap_state<-'pwm_only'
+  pwm.gr$pwm_overlap_state[unique(ov@to)]<-'both'
+  
+  nonmotifs.gr<-pwm.gr %>% plyranges::filter(pwm_overlap_state=='pwm_only') %>%
+    plyranges::arrange(desc(pwm_match_score)) %>% head(n=2000) %>%
+    plyranges::mutate(acc_contrib = regionSums(., 'shap/atac_wt_fold1_atac_counts.bw'),
+                      bind_contrib = regionSums(., paste0('shap/bpnet_osknz_fold1_', motif_to_task.list[[x]], '_counts.bw'))) %>%
+    dplyr::arrange(desc(bind_contrib))
+  
+  ov<-findOverlaps(nonmotifs.gr, regions.gr, ignore.strand = T)
+  nonmotifs.gr$region_id<-NA
+  nonmotifs.gr$region_id[ov@from]<-regions.gr$region_id[ov@to]
+  nonmotifs.df<-nonmotifs.gr %>%
+    as.data.frame %>%
+    dplyr::filter(!is.na(region_id)) %>% 
+    dplyr::arrange(desc(bind_contrib)) %>% 
+    dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, atac_obs, CpG_ratio))
+  
+  
+  rtracklayer::export(pwm.gr %>% 
+                        plyranges::filter(pwm_overlap_state=='pwm_only') %>% 
+                        plyranges::mutate(name = pwm_match_score_q), 
+                      paste0('bed/mapped_motifs/all_', x, '_pwm_only_motifs.bed'))
+  return(nonmotifs.df)
+}) %>% rbindlist(.)
+nonmotif_contrib.df
+```
+
+Next, superimpose the ranked hits with the top PWM-matched contribution scores.
+
+```{r}
+motif_contrib.df<-lapply(names(all_motifs.list), function(x){
+  message(x)
+  motif.df<-motifs.gr %>% as.data.frame %>% 
+    dplyr::filter(motif==x)
+  
+  #Mark which model hits also overlap with PWM hits
+  pwm.gr<-all_motifs.list[[x]]$pwm
+  motif.df$rank_type<-ifelse(overlapsAny(motif.df %>% makeGRangesFromDataFrame(), pwm.gr, ignore.strand = T),
+                              'both', 'model_only')
+  
+  ranked_motifs.df<- motif.df %>%
+    dplyr::group_by(motif, rank_type) %>%
+    dplyr::arrange(desc(acc_contrib)) %>% 
+    dplyr::mutate(acc_ranked_row = 1:(dplyr::n()),
+                  acc_ranked_prop = acc_ranked_row/dplyr::n()) %>%
+    dplyr::arrange(desc(bind_contrib)) %>%
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  ranked_pwms.df<-nonmotif_contrib.df %>%
+    dplyr::filter(motif==x) %>%
+    dplyr::group_by(motif) %>%
+    dplyr::arrange(desc(acc_contrib)) %>% 
+    dplyr::mutate(acc_ranked_row = 1:(dplyr::n()),
+                  acc_ranked_prop = acc_ranked_row/dplyr::n()) %>%
+    dplyr::arrange(desc(bind_contrib)) %>%
+    dplyr::mutate(bind_ranked_row = 1:(dplyr::n()),
+                  bind_ranked_prop = bind_ranked_row/dplyr::n())    
+  
+  rankings.df<-rbind(
+    ranked_motifs.df %>% dplyr::select(acc_contrib, bind_contrib, acc_ranked_prop, bind_ranked_prop, rank_type),
+    ranked_pwms.df %>% dplyr::mutate(rank_type = 'pwm_only') %>% dplyr::select(acc_contrib, bind_contrib, acc_ranked_prop, bind_ranked_prop, rank_type)
+  )
+  
+  acc.plot<-ggplot(rankings.df, aes(x = acc_ranked_prop, y = acc_contrib, color = rank_type))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    geom_line()+
+    facet_grid(motif ~ ., scales = 'free')+
+    theme_classic()
+
+  bind.plot<-ggplot(rankings.df, aes(x = bind_ranked_prop, y = bind_contrib, color = rank_type))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    geom_line()+
+    facet_grid(motif ~ ., scales = 'free')+
+    theme_classic()
+  pwm_nonmotif.plot<-ggseqlogo(ranked_pwms.df %>% .$seq) + scale_y_continuous(limits = c(0, 2)) + ggtitle('PWM-only')
+  model_only.plot<-ggseqlogo(motif.df %>% dplyr::filter(rank_type=='model_only') %>% .$seq) + scale_y_continuous(limits = c(0, 2)) + ggtitle('model-only')
+  both.plot<-ggseqlogo(motif.df %>% dplyr::filter(rank_type=='both') %>% .$seq) + scale_y_continuous(limits = c(0, 2)) + ggtitle('both')
+  
+  showcase<-pwm_nonmotif.plot + model_only.plot + both.plot + acc.plot + bind.plot + plot_layout(ncol = 1)
+  showcase
+  ggsave(paste0(figure_filepath, '/ranked_', x, '_hits_vs_nonmotifs.png'), showcase, height = 12, width = 5)
+  ggsave(paste0(figure_filepath, '/ranked_', x, '_hits_vs_nonmotifs.pdf'), showcase, height = 12, width = 5)
+})
+```
+
+# Create metaplots of motif affinity
+
+# Validate that PWM-only motifs do not maintain good coverage
+
+Plot direct coverage of motifs based on two mapping strategies.
+
+```{r}
+sampled_motif_n<-5000
+
+plot.list<-mclapply(names(all_motifs.list), function(x){
+  lapply(c('acc', 'bind'), function(y){
+    
+    #Filter out Nanog motifs from accessibility models (they dont exist)
+    if(!((x=='Nanog') & (y=='acc'))){
+      
+      message(x, y)
+      
+      #Extract all PWM scored motifs
+      pwm.gr<-rtracklayer::import(paste0('bed/mapped_motifs/all_', x, '_pwm_only_motifs.bed')) %>%
+        plyranges::mutate(obs_atac = regionSums(resize(., 1000, 'center'), 'bw/mesc_native_atac_combined.bw'))
+      
+      #Extract all CWM scored motifs
+      cwm.gr<-motifs.gr %>% plyranges::filter(motif==x, mapping_state %in% c('both', y)) %>%
+        plyranges::mutate(obs_atac = regionSums(resize(., 1000, 'center'), 'bw/mesc_native_atac_combined.bw')) %>%
+        arrange(desc(seq_match_quantile)) %>%
+        
+        #Import bind_marg and bind_perturb scores etc to the cwm.gr motifs
+        as.data.frame %>%
+        dplyr::left_join(., readr::read_tsv('tsv/mapped_motifs/all_instances_curated_1based_with_scores.tsv.gz') %>%
+                           dplyr::select(motif_id, bind_marg, bind_perturb, acc_marg, acc_perturb)) %>%
+        makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+      
+      #Print information about how many motifs come from each model
+      print(table(cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% .$mapping_state))
+      print(table(cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% .$mapping_state))
+      task<-motif_to_task.list[[x]]
+      
+      #Define task-specific binding coverage
+      bind.cov<-list(pos = paste0('bw/mesc_', task, '_nexus_combined_normalized_positive.bw'), 
+                     neg =  paste0('bw/mesc_', task, '_nexus_combined_normalized_negative.bw'))
+      
+      
+      #Plot median perturbation/marginalization scores for the motif based on top/mid/bottom status
+      motif_summary.df<-c(
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% dplyr::mutate(mapping = 'top_cwm'),
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
+          tail(n=sampled_motif_n) %>% dplyr::mutate(mapping = 'mid_cwm'),
+        cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% dplyr::mutate(mapping = 'bottom_cwm')
+      ) %>%
+        as.data.frame %>%
+        dplyr::group_by(mapping, seq) %>% #First, take median to get standard response across each individual sequence
+        dplyr::summarize(bind_marg = median(bind_marg),
+                         bind_perturb = median(bind_perturb),
+                         acc_marg = median(acc_marg),
+                         acc_perturb = median(acc_perturb)) %>% 
+
+        #Then, take median across each individual sequences, then summarize
+        dplyr::group_by(mapping) %>%
+        dplyr::summarize(med_bind_marg = median(bind_marg),
+                         med_bind_perturb = median(bind_perturb),
+                         med_acc_marg = median(acc_marg),
+                         med_acc_perturb = median(acc_perturb)) %>%  
+        as.data.table %>%
+        melt.data.table(id.vars = 'mapping') %>%
+        tidyr::separate(col = variable, into = c(NA, 'model', 'pred_type')) %>%
+        dplyr::mutate(pred_type = factor(pred_type, c('perturb', 'marg')))
+      
+      #Summarize median marginaliztion scores as a bar plot
+      summary.plot<-ggplot(motif_summary.df, aes(x = mapping, y = value, fill = pred_type))+
+        geom_bar(stat = 'identity', position = 'dodge')+
+        facet_grid(. ~ model)+
+        theme_classic() + theme(legend.position = 'bottom')
+      summary.plot
+      ggsave(paste0(figure_filepath, '/motif_response_summary_across_affinities_', x, '.png'), summary.plot, height = 4, width = 4)
+      ggsave(paste0(figure_filepath, '/motif_response_summary_across_affinities_', x, '.pdf'), summary.plot, height = 4, width = 4)
+
+      #Collect binding/metapeak information of top/med/bottom/PWM motifs 
+      bind.df<-rbind(
+        pwm.gr %>% 
+          arrange(desc(score)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
+          dplyr::mutate(mapping = 'pwm'),
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
+          dplyr::mutate(mapping = 'top_cwm'),
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
+          tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
+          dplyr::mutate(mapping = 'mid_cwm'),
+        cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
+          dplyr::mutate(mapping = 'bottom_cwm')
+      ) %>% 
+        dplyr::mutate(mapping = factor(mapping, levels = c('pwm', 'top_cwm','bottom_cwm', 'mid_cwm')))
+      
+      # Plot binding/metapeak information
+      bind.plot<-ggplot(bind.df, aes(x = tss_distance, y = reads, group = interaction(strand, mapping), color = mapping))+
+        geom_line()+
+        scale_x_continuous(name = 'Distance from mapped OS motif')+
+        scale_y_continuous(name = paste0('Norm ', task, ' reads'))+
+        scale_color_manual(values = c('black', '#e31a1c', '#1f78b4', 'purple'))+
+        ggtitle(y)+
+        theme_classic() + theme(legend.position = 'bottom')
+      
+      if(x=='Oct4-Sox2'){
+        sox2_bind.cov<-list(pos = paste0('bw/mesc_sox2_nexus_combined_normalized_positive.bw'), 
+                            neg =  paste0('bw/mesc_sox2_nexus_combined_normalized_negative.bw'))
+        sox2_bind.df<-rbind(
+          pwm.gr %>% 
+            arrange(desc(score)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+            exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
+            dplyr::mutate(mapping = 'pwm'),
+          cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+            exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
+            dplyr::mutate(mapping = 'top_cwm'),
+          cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
+            tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+            exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
+            dplyr::mutate(mapping = 'mid_cwm'),
+          cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+            exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
+            dplyr::mutate(mapping = 'bottom_cwm')
+        ) %>% 
+          dplyr::mutate(mapping = factor(mapping, levels = c('pwm', 'top_cwm','bottom_cwm', 'mid_cwm')))
+        
+        # Plot binding/metapeak information
+        sox2_bind.plot<-ggplot(sox2_bind.df, aes(x = tss_distance, y = reads, group = interaction(strand, mapping), color = mapping))+
+          geom_line()+
+          scale_x_continuous(name = 'Distance from mapped OS motif')+
+          scale_y_continuous(name = paste0('Norm sox2 reads'))+
+          scale_color_manual(values = c('black', '#e31a1c', '#1f78b4', 'purple'))+
+          ggtitle('Sox2 at OS motif', subtitle = y)+
+          theme_classic() + theme(legend.position = 'bottom')
+        
+      }
+      
+      #Collect accessibility/metapeak information of top/med/bottom/PWM motifs 
+      acc.df<-rbind(
+        pwm.gr %>% 
+          arrange(desc(score)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>%
+          standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
+          dplyr::mutate(mapping = 'pwm'),
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>%
+          standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
+          dplyr::mutate(mapping = 'top_cwm'),
+        cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
+          tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
+          dplyr::mutate(mapping = 'mid_cwm'),
+        cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center')  %>%
+          standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
+          dplyr::mutate(mapping = 'bottom_cwm')
+      ) %>% 
+        dplyr::mutate(mapping = factor(mapping, levels = c('pwm', 'top_cwm','bottom_cwm', 'mid_cwm')))
+      
+      # Plot accessibility/metapeak information
+      acc.plot<-ggplot(acc.df, aes(x = tss_distance, y = reads, color = mapping))+
+        geom_line()+
+        scale_x_continuous(name = 'Distance from mapped OS motif')+
+        scale_y_continuous(name = 'Acc. fragments', limits = c(0, 7))+
+        scale_color_manual(values = c('black', '#e31a1c', '#1f78b4', 'purple'))+
+        ggtitle(y)+
+        theme_classic() + theme(legend.position = 'bottom')
+      
+      #Extract logos of subsampled motif groups and plot
+      logo.list<-list(pwm = pwm.gr %>% arrange(desc(score)) %>% head(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T),
+                      top_cwm = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% 
+                        head(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T),
+                      mid_cwm = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% 
+                        head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
+                        tail(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T),
+                      bottom_cwm = cwm.gr %>% arrange(seq_match_quantile) %>% 
+                        head(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T))
+      logo.plot<-ggplot() + geom_logo(logo.list) + theme_logo() + 
+        facet_wrap(~seq_group, ncol=1, scales='free_x')  + 
+        ggtitle(y)
+      
+      #Plot heatmps of metaplots. We will order them based on the sequence affinity
+      atac_heatmap.plot<-plot_standard_heatmap_local(regions.gr = GenomicRanges::resize(cwm.gr, 1, 'center'), 
+                                                     sample = 'bw/mesc_native_atac_combined.bw', title = 'ATAC frag', 
+                                                 order = 'asis', upstream = 1001, downstream = 1000, removal_threshold = .2, normalize_threshold = .99, 
+                                                 color_vec = c('white', '#f7fcfd','#e0ecf4','#bfd3e6','#9ebcda','#8c96c6','#8c6bb1','#88419d','#810f7c','#4d004b')) + 
+        theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+      nexus_heatmap.plot<-plot_standard_heatmap_local(regions.gr = GenomicRanges::resize(cwm.gr, 1, 'center'),# %>% head(n=1000), 
+                                                     sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Task ChIP-nexus', 
+                                                     order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                     color_vec = c('white', '#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#ef6548','#d7301f','#b30000','#7f0000')) + 
+        theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+      #Always add Sox2 heatmap side-by-side for the Oct4-Sox2 side-by-side
+      sox2_nexus_heatmap.plot<-plot_standard_heatmap_local(regions.gr = GenomicRanges::resize(cwm.gr, 1, 'center'),# %>% head(n=1000), 
+                                                           sample = paste0('bw/mesc_sox2_nexus_combined_grouped.bw'), title = 'Sox2 ChIP-nexus', 
+                                                           order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                           color_vec = c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858')) + 
+        theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+      seqs.plot<-plot_sequence(gr = resize(rev(cwm.gr), 1, 'center'), title = 'motif seqs', window = 15, genome = bsgenome, show = F)$plot + 
+        theme(axis.text.y = element_blank(), axis.title.y = element_blank()) 
+      
+      #Save these metaplots
+      if(x=='Oct4-Sox2'){
+        plot<-bind.plot + sox2_bind.plot + acc.plot + logo.plot + seqs.plot + nexus_heatmap.plot + sox2_nexus_heatmap.plot + atac_heatmap.plot + plot_layout(nrow = 1)
+      }else{
+        plot<-bind.plot + acc.plot + logo.plot + seqs.plot + nexus_heatmap.plot + sox2_nexus_heatmap.plot + atac_heatmap.plot + plot_layout(nrow = 1)
+      }
+      ggsave(paste0(figure_filepath, '/metaplots_', y, '_pwm_vs_cwm_across_coverage_', x, '.png'), plot, height = 5, width = 15)
+      ggsave(paste0(figure_filepath, '/metaplots_', y, '_pwm_vs_cwm_across_coverage_', x, '.pdf'), plot, height = 5, width = 15)
+      
+      #Next, save the suballocated top/mid/bottom heatmaps of these motifs
+      plot.list<-list(
+        #Task based coverage
+        plot_standard_heatmap_local(regions.gr = pwm.gr %>% arrange(desc(score)) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'PWM 5K Task ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                    color_vec = c('white', '#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#ef6548','#d7301f','#b30000','#7f0000')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Top 5K Task ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                    color_vec = c('white', '#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#ef6548','#d7301f','#b30000','#7f0000')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% tail(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Mid 5K Task ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                    color_vec = c('white', '#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#ef6548','#d7301f','#b30000','#7f0000')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_', task, '_nexus_combined_grouped.bw'), title = 'Bottom 5K Task ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                    color_vec = c('white', '#fff7ec','#fee8c8','#fdd49e','#fdbb84','#fc8d59','#ef6548','#d7301f','#b30000','#7f0000')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        
+        #Sox2 based coverage
+        plot_standard_heatmap_local(regions.gr = pwm.gr %>% arrange(desc(score)) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_sox2_nexus_combined_grouped.bw'), title = 'PWM 5K Sox2 ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                           color_vec = c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_sox2_nexus_combined_grouped.bw'), title = 'Top 5K Sox2 ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                           color_vec = c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(desc(seq_match_quantile)) %>% head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% tail(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_sox2_nexus_combined_grouped.bw'), title = 'Mid 5K Sox2 ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                           color_vec = c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank()),
+        plot_standard_heatmap_local(regions.gr = cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% 
+                                      plyranges::mutate(task_binding = regionSums(resize(., 100, 'center'), bind.cov$pos) + 
+                                                          abs(regionSums(resize(., 100, 'center'), bind.cov$neg))) %>%
+                                      plyranges::arrange(desc(task_binding)) %>%
+                                      resize(., 1, 'center'),
+                                    sample = paste0('bw/mesc_sox2_nexus_combined_grouped.bw'), title = 'Bottom 5K Sox2 ChIP-nexus', 
+                                    order = 'asis', upstream = 101, downstream = 100, removal_threshold = .95, normalize_threshold = 1, 
+                                                           color_vec = c('#fff7fb','#ece7f2','#d0d1e6','#a6bddb','#74a9cf','#3690c0','#0570b0','#045a8d','#023858')) + 
+          theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+        
+        
+      )
+      
+      subset_heatmaps.plot<-wrap_plots(plot.list, nrow = 4, ncol = 2, byrow = F)
+      ggsave(paste0(figure_filepath, '/heatmaps_', y, '_pwm_vs_cwm_across_subsets_', x, '_alt.png'), subset_heatmaps.plot, height = 15, width = 8)
+      ggsave(paste0(figure_filepath, '/heatmaps_', y, '_pwm_vs_cwm_across_subsets_', x, '_alt.pdf'), subset_heatmaps.plot, height = 15, width = 8)
+      
+    }
+  })
+  return(plot)
+}, mc.cores = 5)
+
+```
+
+
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

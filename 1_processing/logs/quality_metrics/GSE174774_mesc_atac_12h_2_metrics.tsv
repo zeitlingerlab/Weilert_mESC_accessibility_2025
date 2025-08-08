@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+GSE174774_mesc_atac_12h_2	91177600	91171813	5931416	74781652	12524863	83.3	86.4	NA

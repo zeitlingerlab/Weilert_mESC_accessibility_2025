@@ -1,0 +1,1570 @@
+---
+title: 'Visualize CRISPR perturbations'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+Given a set of perturbed CRISPR candidates at enhancers, generate images to visualize perturbation effects on accessibility and binding.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/14_plot_crispr"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(ggseqlogo)
+library(rhdf5)
+library(DESeq2)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+threads <- 5
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+
+#new directories
+dir.create(paste0(figure_filepath, '/pisa'), showWarnings = F, recursive = T)
+dir.create(paste0(figure_filepath, '/enhancers'), showWarnings = F, recursive = T)
+
+#model information
+tasks<-c('oct4', 'sox2', 'nanog', 'klf4', 'zic3')
+motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4', 'Zic3' = 'zic3', 'Nanog' = 'nanog')
+motif_to_task.df<-data.frame(task = motif_to_task.list %>% unlist, motif = names(motif_to_task.list))
+output_length <- 1000
+input_length<-2032
+flank_length<-(input_length - output_length) /2
+
+#experimental data information
+#Btbd11 enhancer (OS/S)
+coop_perturbs.path<-'tsv/genomic/crispr/crispr_coop_predictions.tsv.gz'
+coop_perturbs_w_bias.path<-'tsv/genomic/crispr/crispr_coop_predictions_with_bias.tsv.gz'
+coop_scenarios.path<-'tsv/genomic/crispr/crispr_coop_scenarios.tsv.gz'
+coop_chrom<-'chr10'
+coop_genomic_window<-c(85539375, 85539800)
+coop_genomic_window_short<-c(85539500,85539750)
+
+crispr_coop_atac_reps.path<-Sys.glob('bw/mesc_Btbd11_scenario_WT_*_atac_*_cutsites.bw') %>% grep('distcontrol', ., invert = T, value = T)
+crispr_coop_atac_combined.path<-Sys.glob('bw/mesc_Btbd11_scenario_WT_*_atac_combined_normalized.bw') %>% grep('distcontrol', ., invert = T, value = T)
+
+#Akr1cl enhancer (S/S)
+context_perturbs.path<-'tsv/genomic/crispr/crispr_context_predictions.tsv.gz'
+context_perturbs_w_bias.path<-'tsv/genomic/crispr/crispr_context_predictions_with_bias.tsv.gz'
+context_scenarios.path<-'tsv/genomic/crispr/crispr_context_scenarios.tsv.gz'
+context_chrom<-'chr1'
+context_genomic_window<-c(65037500, 65038000)
+
+crispr_context_atac_reps.path<-c(Sys.glob('bw/mesc_Akr1cl_scenario_context_*_atac_*_cutsites.bw'),
+                                 Sys.glob('bw/mesc_Btbd11_scenario_WT_coop_WT_atac_*_cutsites.bw'))
+crispr_context_nexus_reps.path<-c(Sys.glob('bw/mesc_R1_*sox2_nexus_*_positive.bw'),
+                                  Sys.glob('bw/mesc_Akr1cl_scenario_context_*sox2_nexus_*_positive.bw')) %>%
+  .[!grepl('combined|normalized', .)]
+
+crispr_context_atac_combined.path<-c(Sys.glob('bw/mesc_Akr1cl_scenario_context_*_atac_combined_normalized.bw'),
+                                     'bw/mesc_Btbd11_scenario_WT_coop_WT_atac_combined_normalized.bw')
+
+crispr_context_nexus_combined.path<-c(Sys.glob('bw/mesc_Akr1cl_scenario_context_mut_*_sox2_nexus_combined_normalized_positive.bw'),
+                                     'bw/mesc_R1_sox2_nexus_combined_normalized_positive.bw')
+  
+
+#general paths
+motifs.path<-'tsv/mapped_motifs/all_instances_curated_0based_w_perturb.tsv.gz'
+motifs.df<-readr::read_tsv(motifs.path)
+
+atac_regions.path<-'narrowpeak/mesc_atac_peaks.narrowPeak'
+sox2_regions.path<-'narrowpeak/mesc_sox2_nexus_peaks.narrowPeak'
+dev_enhancers.path<-'../../public/published/Avsec_2021_et_al/mm10_enhancer_regions.xlsx'
+```
+
+Read in developmental enhancer information.
+
+```{r}
+dev_enhancers.gr<-readxl::read_xlsx(dev_enhancers.path) %>%
+  tidyr::separate(col = 'mm10_coordinates_curated', into = c('seqnames','coord'), sep = ':') %>%
+  tidyr::separate(col = 'coord', into = c('start','end'), sep = '-') %>%
+  dplyr::filter(!is.na(start), ) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+```
+
+## Custom functions
+
+Custom function to compare 2-way interacting DESeq2 model factors for significance. Found at ( https://www.r-bloggers.com/2024/05/a-guide-to-designs-and-contrasts-in-deseq2/).
+
+```{r}
+#Kudos to: https://www.r-bloggers.com/2024/05/a-guide-to-designs-and-contrasts-in-deseq2/
+contraster <- function(dds,    # should contain colData and design
+                       group1, # list of character vectors each with 2 or more items 
+                       group2, # list of character vectors each with 2 or more items
+                       weighted = F
+){
+  
+  
+  mod_mat <- model.matrix(design(dds), colData(dds)) #create matrix from the DESeq2 model
+  
+  grp1_rows <- list()
+  grp2_rows <- list()
+  
+  
+  for(i in 1:length(group1)){
+    
+    grp1_rows[[i]] <- colData(dds)[[group1[[i]][1]]] %in% group1[[i]][2:length(group1[[i]])] #Subselect DESeq2 model based on desired grouping indexes
+    
+  }
+  
+  
+  for(i in 1:length(group2)){
+    
+    grp2_rows[[i]] <- colData(dds)[[group2[[i]][1]]] %in% group2[[i]][2:length(group2[[i]])] #Subselect DESeq2 model based on desired grouping indexes
+    
+  }
+  
+  #Remove any observations that aren't shared
+  grp1_rows <- Reduce(function(x, y) x & y, grp1_rows)
+  grp2_rows <- Reduce(function(x, y) x & y, grp2_rows)
+  
+  mod_mat1 <- mod_mat[grp1_rows, ,drop=F]
+  mod_mat2 <- mod_mat[grp2_rows, ,drop=F]
+  
+  if(!weighted){
+    
+    mod_mat1 <- mod_mat1[!duplicated(mod_mat1),,drop=F]
+    mod_mat2 <- mod_mat2[!duplicated(mod_mat2),,drop=F]
+    
+  }
+  
+  return(colMeans(mod_mat1)-colMeans(mod_mat2))
+}
+```
+
+
+# Visualize Btbd11 enhancer (Avsec et al CRISPR)
+
+## Read in perturbation data
+
+```{r}
+perturbs.df<-readr::read_tsv(coop_perturbs_w_bias.path) %>% dplyr::mutate(state = factor(state, c('AB','A','B','null')))
+scenarios.df<-readr::read_tsv(coop_scenarios.path) %>%
+  dplyr::mutate(scenario_state = paste0(scenario, '_', state))
+
+perturbs.df %>% 
+  dplyr::group_by(scenario, state, model_name) %>%
+  dplyr::summarize(sum_pred = sum(pred)) %>%
+  tidyr::pivot_wider(names_from = state, values_from = sum_pred)
+```
+
+## Report summary differences
+
+For perturbations and experiments, what are the differences between the different scenarios and states?
+
+### Perturbations
+
+```{r}
+#Plot perturbation summaries
+perturbs_reads.plot<-rbind(
+  perturbs.df %>% dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(coop_genomic_window[1]:coop_genomic_window[2])) %>% dplyr::mutate(range = 'full_window'),
+  perturbs.df %>% dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(coop_genomic_window_short[1]:coop_genomic_window_short[2])) %>% dplyr::mutate(range = '250bp_window')
+) %>%
+  dplyr::group_by(scenario, state, range) %>%
+  dplyr::summarize(sum_pred = sum(pred)) %>%
+  ggplot(., aes(x = state, y = sum_pred))+
+  geom_bar(stat = 'identity')+
+  facet_grid(scenario ~ range)+
+  theme_classic()
+
+coop.df<-rbind(
+  perturbs.df %>% dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(coop_genomic_window[1]:coop_genomic_window[2])) %>% dplyr::mutate(range = 'full_window'),
+  perturbs.df %>% dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(coop_genomic_window_short[1]:coop_genomic_window_short[2])) %>% dplyr::mutate(range = '250bp_window')
+) %>%
+  dplyr::group_by(state, scenario, range) %>%
+  dplyr::summarize(preds = sum(pred)) %>%
+  tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+  dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                log_add_coop = round(log(add_coop), 2),
+                AB_vs_B = AB/B,
+                log_AB_vs_B = log(AB_vs_B))
+print(coop.df)
+
+perturbs_coop.plot<-ggplot(coop.df, aes(x = scenario, y = log_add_coop))+
+  geom_bar(stat = 'identity')+
+  facet_grid(. ~ range)+
+  theme_classic()
+
+perturbs.plot<-perturbs_reads.plot + perturbs_coop.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_summary.png'), perturbs.plot, height = 6, width = 7)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_summary.pdf'), perturbs.plot, height = 6, width = 7)
+```
+
+Print additional scenarios to verify our cooperativity.
+
+```{r}
+#Assess Oct4 cooperativity in these different scenarios
+oct4_coop.df<-perturbs.df %>% 
+  dplyr::filter(model_name%in%c('bpnet_osknz_fold1', 'atac_wt_fold1'), 
+                genomic_position %in% c(coop_genomic_window[1]:coop_genomic_window[2])) %>%
+  dplyr::group_by(task, scenario, state) %>%
+  dplyr::summarize(preds = sum(pred)) %>%
+  tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+  dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                dir_coop = round((AB - B + null)/(A), 2),
+                log_add_coop = round(log(add_coop), 2))
+print(oct4_coop.df)
+
+#Assess all cooperativity when Zic3 is absent
+coop_w_zic3.df<-readr::read_tsv('tsv/genomic/crispr/crispr_coop_predictions_with_zic3_mut_with_bias.tsv.gz') %>% dplyr::mutate(state = factor(state, c('AB','A','B','null'))) %>%
+  dplyr::filter(model_name%in%c('bpnet_osknz_fold1', 'atac_wt_fold1'), 
+                genomic_position %in% c(coop_genomic_window[1]:coop_genomic_window[2])) %>%
+  dplyr::group_by(task, scenario, state) %>%
+  dplyr::summarize(preds = sum(pred)) %>%
+  tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+  dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                dir_coop = round((AB - B + null)/(A), 2),
+                log_add_coop = round(log(add_coop), 2))
+print(coop_w_zic3.df)
+```
+
+### Experiments
+
+```{r}
+experimental_scenarios<-c('WT')
+
+experimental_reads.df<-lapply(experimental_scenarios, function(y){
+  message('CRISPR scenario: ', y)
+  
+  if(y=='dist'){reps<-2:3} else{reps<-1:2}
+
+  reads.df<-lapply(reps, function(z){
+    #Define files
+    atac_exp.bw.list<-list(
+      'AB' = paste0('../1_processing/bw/mesc_Btbd11_scenario_', y, '_coop_WT_atac_', z, '_cutsites_normalized.bw'),
+      'A' = paste0('../1_processing/bw/mesc_Btbd11_scenario_', y, '_coop_mut_A_atac_', z, '_cutsites_normalized.bw'),
+      'B' = paste0('../1_processing/bw/mesc_Btbd11_scenario_', y, '_coop_mut_B_atac_', z, '_cutsites_normalized.bw'),
+      'null' = paste0('../1_processing/bw/mesc_Btbd11_scenario_', y, '_coop_mut_null_atac_', z, '_cutsites_normalized.bw')
+    )
+    if(y=='dist'){atac_exp.bw.list$AB<-paste0('../1_processing/bw/mesc_Btbd11_scenario_', y, '_coop_mut_AB_atac_', z, '_cutsites_normalized.bw')}
+    
+    #Collect reads
+    atac_reads.df<-lapply(names(atac_exp.bw.list), function(x){
+      
+      #Collect reads
+      df<-rbind(
+        lapply(names(atac_exp.bw.list), function(x){
+          gr<-GRanges(coop_chrom, IRanges(start =coop_genomic_window[1], end = coop_genomic_window[2]))
+          df<-data.frame(reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                         state = x,
+                         scenario = y,
+                         range = 'full_window')
+          
+        }) %>% rbindlist(),
+        lapply(names(atac_exp.bw.list), function(x){
+          gr<-GRanges(coop_chrom, IRanges(start =coop_genomic_window_short[1], end = coop_genomic_window_short[2]))
+          df<-data.frame(reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                         state = x,
+                         scenario = y,
+                         range = '250bp_window')
+          
+        }) %>% rbindlist()   
+      )
+      
+    }) %>% rbindlist() 
+  }) %>% rbindlist()
+}) %>% rbindlist()  
+
+#Collect summary values
+reads_summary.df<-experimental_reads.df %>% 
+  dplyr::group_by(state, scenario, range) %>%
+  dplyr::summarize(median_reads = median(reads)) %>% 
+  dplyr::mutate(state = factor(state, c('AB','A','B','null')))
+exp_reads.plot<-ggplot()+
+  geom_bar(data = reads_summary.df, aes(x = state, y = median_reads), stat = 'identity')+
+  geom_point(data = experimental_reads.df, aes(x = state, y = reads))+
+  scale_y_continuous(name = 'RPM norm. observed ATAC-seq reads')+
+  scale_x_discrete(name = 'CRISPR line')+
+  facet_grid(scenario ~ range)+
+  ggtitle('Observed reads')+
+  theme_classic()
+
+#Collect cooperativity values from the pooled samples
+pooled_reads.df<-lapply(experimental_scenarios, function(y){
+  message('CRISPR scenario: ', y)
+
+    #Define files
+    atac_exp.bw.list<-list(
+      'AB' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_WT_atac_cutsites_combined_normalized.bw'),
+      'A' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_A_atac_cutsites_combined_normalized.bw'),
+      'B' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_B_atac_cutsites_combined_normalized.bw'),
+      'null' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_null_atac_cutsites_combined_normalized.bw')
+    )
+    if(y=='dist'){atac_exp.bw.list$AB<-paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_AB_atac_cutsites_combined_normalized.bw')}
+
+    #Collect reads
+    atac_reads.df<-rbind(
+      lapply(names(atac_exp.bw.list), function(x){
+        gr<-GRanges(coop_chrom, IRanges(start =coop_genomic_window[1], end = coop_genomic_window[2]))
+        df<-data.frame(reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                       state = x,
+                       scenario = y,
+                       range = 'full_window')
+        
+      }) %>% rbindlist(),
+      lapply(names(atac_exp.bw.list), function(x){
+          gr<-GRanges(coop_chrom, IRanges(start =coop_genomic_window_short[1], end = coop_genomic_window_short[2]))
+        df<-data.frame(reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                       state = x,
+                       scenario = y,
+                       range = '250bp_window')
+        
+      }) %>% rbindlist()   
+    )
+
+}) %>% rbindlist()  
+
+coop_summary.df<-pooled_reads.df %>%
+  tidyr::pivot_wider(names_from = state, values_from = reads) %>%
+  dplyr::group_by(range) %>%
+  dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                log_add_coop = round(log(add_coop), 2),
+                AB_vs_B = AB/B,
+                log_AB_vs_B = log(AB_vs_B))
+print(coop_summary.df)
+
+exp_coop.plot<-ggplot(coop_summary.df %>% dplyr::select(scenario, log_add_coop), aes(x = 1, y = log_add_coop))+
+  geom_bar(stat = 'identity')+
+  facet_grid(scenario ~ range)+
+  scale_y_continuous(name = 'Cooperativity')+
+  ggtitle('Cooperativity')+
+  theme_classic() +theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank()) 
+exp.plot<-exp_reads.plot + exp_coop.plot + plot_layout(widths = c(2, 1))
+exp.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_experimental_summary.png'), exp.plot, height = 7, width = 7)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_experimental_summary.pdf'), exp.plot, height = 7, width = 7)
+```
+
+## Assess cooperativity over different ranges
+
+Show how cooperativity changes based on the window that we explore across. There is an upstream cluster of motifs.
+
+```{r}
+coord_plot<-motifs.df %>% dplyr::filter(region_id==97554 | region_id==97555) %>%
+  dplyr::select(motif, start, end) %>%
+  ggplot(.)+
+  geom_hline(yintercept = 0)+
+  geom_rect(aes(xmin = start, xmax = end, ymin = -1, ymax = 1))+
+  geom_text(aes(x = start, y = 2, label = motif))+
+  scale_x_continuous(limits = c(coop_genomic_window[1], coop_genomic_window[1]+1000)) + 
+  theme_classic()
+ggsave(paste0(figure_filepath, '/Btbd11_coordinate_range.png'), coord_plot, height = 3, width = 12)
+ggsave(paste0(figure_filepath, '/Btbd11_coordinate_range.pdf'), coord_plot, height = 3, width = 12)
+```
+
+
+```{r}
+#Collect cooperativity values from the pooled samples
+range_exp.df<-lapply(experimental_scenarios, function(y){
+  message('CRISPR scenario: ', y)
+
+    #Define files
+    atac_exp.bw.list<-list(
+      'AB' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_WT_atac_cutsites_combined_normalized.bw'),
+      'A' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_A_atac_cutsites_combined_normalized.bw'),
+      'B' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_B_atac_cutsites_combined_normalized.bw'),
+      'null' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_null_atac_cutsites_combined_normalized.bw')
+    )
+
+    #Collect reads
+    mclapply(seq(200, 1200, 100), function(z){
+      lapply(names(atac_exp.bw.list), function(x){
+        gr<-GRanges(coop_chrom, IRanges(start =coop_genomic_window[1], end = coop_genomic_window[2])) %>% GenomicRanges::resize(., z, 'start')
+        if(end(gr)>max(perturbs.df$genomic_position)) {keep = F} else {keep = T}
+        df<-data.frame(exp_reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                       pred_reads = perturbs.df %>% dplyr::filter(model_name=='atac_wt_fold1', 
+                                                                  task == 'atac', 
+                                                                  state == x, 
+                                                                  scenario == paste0(y, '_coop'),
+                                                                  genomic_position %in% start(gr):end(gr)) %>% 
+                       dplyr::mutate(keep = keep) %>% dplyr::mutate(pred_keep = ifelse(keep, pred, NA)) %>% .$pred_keep %>% sum,
+                       state = x,
+                       scenario = y,
+                       range = z)
+        return(df)
+      }) %>% rbindlist()
+    }, mc.cores = 6) %>% rbindlist()
+}) %>% rbindlist()  
+
+
+range_coop_summary.df<-range_exp.df %>%
+  dplyr::filter(scenario == 'WT') %>%
+  tidyr::pivot_longer(cols = c('exp_reads', 'pred_reads'), names_to = 'type', values_to = 'reads') %>%
+  tidyr::pivot_wider(names_from = state, values_from = reads) %>%
+  dplyr::group_by(range, type) %>%
+  dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                log_add_coop = round(log(add_coop), 2),
+                AB_vs_B = AB/B,
+                log_AB_vs_B = log(AB_vs_B))
+print(range_coop_summary.df)
+
+range.plot<-ggplot(range_coop_summary.df, aes(x = range, y = log_add_coop, color = type))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(name = 'ln(add_coop.)')+
+  scale_x_continuous(name = 'Considered coop. region (bp)\naround S/OS motif pair')+
+  theme_classic()
+range.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_experimental_ranges.png'), range.plot, height = 3, width = 5)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_experimental_ranges.pdf'), range.plot, height = 3, width = 5)
+
+```
+
+
+Perform statistics on the differences.
+
+```{r}
+
+#Do statistics on these values for significance
+stats.df<-lapply(experimental_scenarios, function(x){
+  lapply(experimental_reads.df$state %>% unique, function(y){
+    ttest<-t.test(experimental_reads.df %>% dplyr::filter(state=='AB', scenario==x) %>% .$reads, 
+           experimental_reads.df %>% dplyr::filter(state==y, scenario==x) %>% .$reads, 
+           alternative = 'greater')
+    message(x, y)
+    print(ttest)
+    
+    data.frame(
+      pval = round(ttest$p.value, 3),
+      scenario = x,
+      state = y,
+      comparison = paste0('AB_vs_', y)
+    )
+  }) %>% rbindlist()
+}) %>% rbindlist()
+print(stats.df)
+```
+
+## Visualize predictions
+
+Smooth the plots.
+
+```{r}
+acc_plots.list<-mclapply(perturbs.df$scenario %>% unique, function(x){
+  
+  p.df<-perturbs.df %>% dplyr::filter(scenario==x, grepl('wt', model_name))
+  s.df<-scenarios.df %>% dplyr::filter(scenario==x)
+  
+  #Calculate cooperativity value
+  log_add_coop<-p.df %>%
+    dplyr::group_by(state) %>%
+    dplyr::summarize(preds = sum(pred)) %>%
+    tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+    dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                  log_add_coop = round(log(add_coop), 2))
+  
+  acc.plot<-ggplot(p.df) + 
+    geom_vline(xintercept = s.df$genomic_center_OS, linetype = 'dashed')+
+    geom_vline(xintercept = s.df$genomic_center_S, linetype = 'dashed')+
+    stat_smooth(aes(x = genomic_position, y = pred, color = state), method = 'loess', span = .2)+
+    scale_x_continuous(name = paste0('Genomic position (bp)'), limits = coop_genomic_window)+
+    # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+    scale_y_continuous(name = 'Predicted ATAC-seq')+
+    scale_color_manual(name = 'State',values = c('#542788', '#2166ac', '#b2182b', 'gray'))+
+    ggtitle(p.df$scenario %>% unique, subtitle = paste0('Add coop:', log_add_coop$add_coop, ', Log add coop:', log_add_coop$log_add_coop))+
+    facet_grid(. ~ model_name) + 
+    theme_classic()
+    return(acc.plot)
+  })
+acc_plots.plot<-wrap_plots(acc_plots.list)+plot_layout(ncol = 1)
+acc_plots.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_smoothed.png'), acc_plots.plot, width = 16, height = 10)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_smoothed.pdf'), acc_plots.plot, width = 16, height = 10)
+```
+
+Plot raw data as well.
+
+```{r}
+acc_plots.list<-mclapply(perturbs.df$scenario %>% unique, function(x){
+  
+  p.df<-perturbs.df %>% dplyr::filter(scenario==x, grepl('wt', model_name))
+  s.df<-scenarios.df %>% dplyr::filter(scenario==x)
+  
+  #Calculate cooperativity value
+  log_add_coop<-p.df %>%
+    dplyr::group_by(state) %>%
+    dplyr::summarize(preds = sum(pred)) %>%
+    tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+    dplyr::mutate(add_coop = round((AB - null)/(A + B - 2*null), 2),
+                  log_add_coop = round(log(add_coop), 2))
+  
+  acc.plot<-ggplot(p.df) + 
+    geom_vline(xintercept = s.df$genomic_center_OS, linetype = 'dashed')+
+    geom_vline(xintercept = s.df$genomic_center_S, linetype = 'dashed')+
+    geom_line(aes(x = genomic_position, y = pred, color = state))+
+    scale_x_continuous(name = paste0('Genomic position (bp)'), limits = coop_genomic_window)+
+    # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+    scale_y_continuous(name = 'Predicted ATAC-seq', limits = c(0, 50))+
+    scale_color_manual(name = 'State',values = c('#542788', '#2166ac', '#b2182b', 'gray'))+
+    ggtitle(p.df$scenario %>% unique, subtitle = paste0('Add coop:', log_add_coop$add_coop, ', Log add coop:', log_add_coop$log_add_coop))+
+    facet_grid(. ~ model_name) + 
+    theme_classic()
+  return(acc.plot)
+  })
+acc_plots.plot<-wrap_plots(acc_plots.list)+plot_layout(ncol = 1)
+acc_plots.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_raw.png'), acc_plots.plot, width = 16, height = 10)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_perturbations_raw.pdf'), acc_plots.plot, width = 16, height = 10)
+```
+
+## Visualize experimental data
+
+### Plot fragments
+
+```{r}
+experimental_scenarios<-c('WT')
+
+acc_plots.list<-lapply(experimental_scenarios, function(y){
+  message('CRISPR scenario: ', y)
+  atac_exp.bw.list<-list(
+    'AB' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_WT_atac_combined_normalized.bw'),
+    'A' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_A_atac_combined_normalized.bw'),
+    'B' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_B_atac_combined_normalized.bw'),
+    'null' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_null_atac_combined_normalized.bw')
+  )
+  if(y=='dist'){atac_exp.bw.list$AB<-paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_AB_atac_combined_normalized.bw')}
+  
+  atac_exp.df<-lapply(names(atac_exp.bw.list), function(x){
+    standard_metapeak_matrix(GRanges(coop_chrom, IRanges(start =coop_genomic_window[1], end = coop_genomic_window[2])),
+                             atac_exp.bw.list[[x]], keep_region_coordinates = T) %>%
+      as.data.frame() %>% transpose() %>%
+      dplyr::rename(pred = V1) %>%
+      dplyr::mutate(genomic_position = coop_genomic_window[1]:coop_genomic_window[2],
+                    sample = x)
+  }) %>% rbindlist() %>%
+    dplyr::mutate(sample = factor(sample, names(atac_exp.bw.list)))
+  
+  atac_exp.plot<-ggplot(atac_exp.df) + 
+    geom_vline(xintercept = scenarios.df %>% dplyr::filter(scenario=='WT_coop') %>% .$genomic_center_OS, linetype = 'dashed')+
+    geom_vline(xintercept = scenarios.df %>% dplyr::filter(scenario=='WT_coop') %>% .$genomic_center_S, linetype = 'dashed')+
+    geom_line(aes(x = genomic_position, y = pred, color = sample))+
+    scale_x_continuous(name = paste0('Genomic position (bp)'), limits = coop_genomic_window)+
+    scale_y_continuous(name = 'RPM-normalized ATAC-seq fragments', limits = c(0, 3.2))+
+    scale_color_manual(name = 'State', values = c('#542788', '#2166ac', '#b2182b', 'gray'))+
+    ggtitle(y)+
+    theme_classic()
+  
+  atac_exp.plot
+  
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_scenario_', y, '_experiments_RPM_fragments.png'), atac_exp.plot, width = 7, height = 3)
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_scenario_', y, '_experiments_RPM_fragments.pdf'), atac_exp.plot, width = 7, height = 3)
+  
+  print(atac_exp.df %>% dplyr::group_by(sample) %>%
+    dplyr::summarize(sum_reads = sum(pred)) %>%
+    tidyr::pivot_wider(names_from = sample, values_from = sum_reads) %>%
+    dplyr::mutate(coop = log((AB-null)/(A - null + B - null))))
+})
+```
+
+### Plot cutsites
+
+```{r}
+experimental_scenarios<-c('WT')
+
+acc_plots.list<-lapply(experimental_scenarios, function(y){
+  message('CRISPR scenario: ', y)
+  atac_exp.bw.list<-list(
+    'AB' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_WT_atac_cutsites_combined_normalized.bw'),
+    'A' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_A_atac_cutsites_combined_normalized.bw'),
+    'B' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_B_atac_cutsites_combined_normalized.bw'),
+    'null' = paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_null_atac_cutsites_combined_normalized.bw')
+  )
+  if(y=='dist'){atac_exp.bw.list$AB<-paste0('bw/mesc_Btbd11_scenario_', y, '_coop_mut_AB_atac_cutsites_combined_normalized.bw')}
+  
+  atac_exp.df<-lapply(names(atac_exp.bw.list), function(x){
+    standard_metapeak_matrix(GRanges(coop_chrom, IRanges(start =coop_genomic_window[1], end = coop_genomic_window[2])),
+                             atac_exp.bw.list[[x]], keep_region_coordinates = T) %>%
+      as.data.frame() %>% transpose() %>%
+      dplyr::rename(pred = V1) %>%
+      dplyr::mutate(genomic_position = coop_genomic_window[1]:coop_genomic_window[2],
+                    sample = x)
+  }) %>% rbindlist() %>%
+    dplyr::mutate(sample = factor(sample, names(atac_exp.bw.list)))
+  
+  atac_exp.plot<-ggplot(atac_exp.df) + 
+    geom_vline(xintercept = scenarios.df %>% dplyr::filter(scenario=='WT_coop') %>% .$genomic_center_OS, linetype = 'dashed')+
+    geom_vline(xintercept = scenarios.df %>% dplyr::filter(scenario=='WT_coop') %>% .$genomic_center_S, linetype = 'dashed')+
+    stat_smooth(aes(x = genomic_position, y = pred, color = sample), method = 'loess', span = .2)+
+    scale_x_continuous(name = paste0('Genomic position (bp)'), limits = coop_genomic_window)+
+    scale_y_continuous(name = 'RPM ATAC-seq cutsites(smooth)')+
+    scale_color_manual(name = 'State',values = c('#542788', '#2166ac', '#b2182b', 'gray'))+
+    ggtitle(y)+
+    theme_classic()
+  
+  atac_exp.plot
+  
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_scenario_', y, '_experiments_RPM_cutsites_smooth.png'), atac_exp.plot, width = 7, height = 3)
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_scenario_', y, '_experiments_RPM_cutsites_smooth.pdf'), atac_exp.plot, width = 7, height = 3)
+  
+})
+```
+
+## Visualize contribution as wildtype
+
+```{r}
+curated_enhancer_boundaries.gr<-GRanges(coop_chrom, IRanges(coop_genomic_window[1], coop_genomic_window[2]))
+```
+
+Generate contribution scores of mapped motifs.
+
+```{r}
+curated_enhancer.df<-data.frame(
+  acc_contrib = standard_metapeak_matrix(regions.gr = curated_enhancer_boundaries.gr, sample.cov = 'shap/atac_wt_fold1_atac_counts.bw', 
+                                         keep_region_coordinates = T) %>% t(),
+  seq = getSeq(bsgenome, curated_enhancer_boundaries.gr, as.character = T) %>% stringr::str_split_1(pattern = ''),
+  position = start(curated_enhancer_boundaries.gr):end(curated_enhancer_boundaries.gr)
+)
+
+# Generate sequence logo
+acc_contrib.plot<-curated_enhancer.df%>%
+  tidyr::pivot_wider(names_from = seq, values_from = acc_contrib) %>% 
+  dplyr::select(A, C, G, T) %>% as.matrix() %>% t() %>%
+ggseqlogo(., method='custom', seq_type='dna') + 
+  scale_y_continuous(name = 'Acc. contribution.')+
+  scale_x_discrete(name = 'Genomic position (chr10, bp)')+
+  ggtitle('CRISCR enhancer')
+acc_contrib.plot
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_candidate_contrib.png'), acc_contrib.plot, height = 2, width = 20)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_candidate_contrib.pdf'), acc_contrib.plot, height = 2, width = 20)
+```
+
+## Read in contribution scores and plot
+
+```{r}
+seqs.fa<-seqinr::read.fasta('fasta/crispr_coop_seqs.fa')
+
+filler<-mclapply(Sys.glob('shap/crispr/crispr_coop_*_counts.h5'), function(y){
+  contrib.h5<-rhdf5::h5read(y, '/')
+  
+  hyp_scores.list<-apply(contrib.h5$hyp_scores, 3, function(x){
+    as.data.frame(x) %>% transpose()
+  })
+  input_seqs.list<-apply(contrib.h5$input_seqs, 3, function(x){
+    df<-as.data.frame(x)
+    df<-dplyr::mutate_all(df, function(x) as.numeric(as.character(x)))
+    return(df %>% transpose)
+  })
+  
+  contrib.list<-lapply(1:length(hyp_scores.list), function(x){
+    mat<-input_seqs.list[[x]] * hyp_scores.list[[x]]
+    colnames(mat)<-c('A','C','G','T')
+    return(mat %>% t())
+  })
+  names(contrib.list)<-names(seqs.fa)
+  
+  #Visualize contribution scores
+  contrib.plot<- ggseqlogo(contrib.list, method='custom', seq_type='dna') + 
+    scale_y_continuous(name = 'Contribution') + 
+    scale_x_continuous(limits = c(700, 1200)) + 
+    facet_wrap(~seq_group, ncol=4, scales='free_x') +
+    theme(axis.line = element_line(), axis.ticks = element_line())+
+    ggtitle(y)
+  
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_contribution_', basename(y), '.png'), contrib.plot, width = 16, height = 10)
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_contribution_', basename(y), '.pdf'), contrib.plot, width = 16, height = 10)
+}, mc.cores = 6)
+```
+
+## Verify paired cooperativity
+
+Confirm motif sequences are indeed high/low-affinity
+
+```{r}
+readr::read_tsv('tsv/insilico/marginalizations/crispr/btbd11_marginalizations_atac_wt.tsv.gz')
+readr::read_tsv('tsv/insilico/marginalizations/crispr/btbd11_marginalizations_bpnet_osknz.tsv.gz')
+
+invivo_marg.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/all_marginalizations_expanded.tsv.gz') %>%
+  dplyr::filter(seq %in% c(motifs.df %>% dplyr::filter(region_id == 97547) %>% .$seq, 'ATTAGCATTACAATT'))
+invivo_marg.df  %>% as.data.frame
+
+motifs.df %>% dplyr::filter(seq=='ATTATCATTATAATT') %>% nrow(.)
+```
+
+Between all other motifs, what does our model think is happening?
+
+```{r}
+pairs.df<-readr::read_tsv('tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz')
+
+pairs.df %>% dplyr::filter(region_id == 97554) %>% dplyr::select(motif.x, pattern_center.x, width.x)
+
+pairs.df %>% dplyr::filter(region_id == 97554) %>%
+  dplyr::select(motif.x, motif.y,
+                `atac_wt/atac/hAB/pred_sum`, `atac_wt/atac/hA/pred_sum`, `atac_wt/atac/hB/pred_sum`, `atac_wt/atac/null/pred_sum`,
+                `bpnet_osknz/oct4/hAB/pred_sum`, `bpnet_osknz/oct4/hA/pred_sum`, `bpnet_osknz/oct4/hB/pred_sum`, `bpnet_osknz/oct4/null/pred_sum`) %>%
+  dplyr::mutate(atac_coop = ((`atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`)/(`atac_wt/atac/hA/pred_sum`+`atac_wt/atac/hB/pred_sum` - 2*`atac_wt/atac/null/pred_sum`)),
+                oct4_coop = ((`bpnet_osknz/oct4/hAB/pred_sum` - `bpnet_osknz/oct4/hB/pred_sum` + `bpnet_osknz/oct4/null/pred_sum`)/(`bpnet_osknz/oct4/hA/pred_sum`))) %>%
+  as.data.frame
+```
+
+## Supplemental validations
+
+### Replicate validation
+
+Compare CRISPR ATAC-seq samples to make sure they're replicable. So only compare replicates here. 
+
+```{r}
+atac_regions.gr<-rtracklayer::import(atac_regions.path) %>% 
+  plyranges::mutate(across_Btbd11 = ifelse(overlapsAny(., GRanges(coop_chrom, IRanges(start = coop_genomic_window[1], end = coop_genomic_window[2]))), 'Btbd11', 'none'),
+                    across_enhancer = ifelse(overlapsAny(., dev_enhancers.gr), 'dev_enh', across_Btbd11))  %>% arrange(desc(across_enhancer))
+
+#Collect coverage
+crispr_coop_cov.df<-mclapply(crispr_coop_atac_reps.path, function(x){
+  regionSums(atac_regions.gr, x)
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_coop_cov.df)<-crispr_coop_atac_reps.path
+
+#Consolidate values
+crispr_coop_cov_w_coord.df<-cbind(atac_regions.gr %>% as.data.frame, crispr_coop_cov.df) %>% arrange(desc(across_enhancer))
+
+#Plot the sequencing depth imbalance.
+plot.list<-lapply(Sys.glob('bw/mesc_Btbd11_scenario_WT_*_atac_1_cutsites.bw') %>% grep('distcontrol', ., value = T, invert = T), function(x){
+  crispr_coop_cov_w_coord.df$repa<-crispr_coop_cov_w_coord.df[[x]]
+  crispr_coop_cov_w_coord.df$repb<-crispr_coop_cov_w_coord.df[[gsub('_1_', '_2_', x)]]
+
+  plot<-ggplot(data = crispr_coop_cov_w_coord.df, aes(x = log(repa), y = log(repb)))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_coop_cov_w_coord.df %>% dplyr::filter(across_Btbd11_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 2 log-reads across peaks'))+
+    ggtitle(basename(x) %>% gsub('_atac_1_cutsites.bw', '', .))+
+    theme_classic() + theme(legend.position = 'none')
+  
+  return(plot)
+})
+
+rep.plot<-wrap_plots(plot.list) + plot_layout(nrow = 1, ncol = 4)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_rep_comparison.png'), rep.plot, height = 6, width = 12)
+ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_rep_comparison.pdf'), rep.plot, height = 6, width = 12)
+```
+
+### Developmental enhancer consistency
+
+Do our conditions and CRISPR mutants look consistent across regions of interest that are not the CRISPR locus?
+
+```{r}
+filler<-lapply(1:length(dev_enhancers.gr), function(x){
+  
+  metapeak.df<-mclapply(crispr_coop_atac_combined.path, function(y){
+    standard_metapeak(resize(dev_enhancers.gr[x], 1, 'center'), y, downstream = 501, upstream = 500) %>%
+      dplyr::mutate(path = y, enhancer = dev_enhancers.gr[x]$name)
+  }, mc.cores = 8) %>% rbindlist() %>%
+    dplyr::mutate(scenario_state = basename(path) %>% gsub('mesc_Btbd11_scenario_', '', .)%>% gsub('_atac_combined_normalized.bw', '', .),
+                  genomic_position = tss_distance + start(resize(dev_enhancers.gr[x], 1, 'center'))) %>%
+    tidyr::separate(col = 'scenario_state', into = c('scenario','state'), sep = '_coop_', remove = F) %>%
+    dplyr::mutate(state = factor(gsub('mut_', '', state), c('WT','A','B','null')))
+    
+  
+  enhancer_name<-dev_enhancers.gr[x]$name
+  plot<-ggplot(metapeak.df, aes(x = genomic_position, y = reads, color = state))+
+    geom_line()+
+    scale_x_continuous(name = seqnames(dev_enhancers.gr[x])) + 
+    scale_y_continuous(name = 'RPM-normalized ATAC-seq fragments', limits = c(0, 5))+
+    scale_colour_manual(values = turbo(4, begin = .2, end = .8))+
+    facet_grid(. ~ scenario)+
+    ggtitle(enhancer_name)+
+    theme_classic()
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Btbd11_crispr_coop_comparison.png'), plot, height = 4, width = 8)
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Btbd11_crispr_coop_comparison.pdf'), plot, height = 4, width = 8)
+  return(NULL)
+})
+```
+
+### CRISPR mutant differential enrichment
+ 
+Run DESeq2 in order to measure whether CRISPR scenarios are significantly differentially enriched when we do these mutations. Since we are comparing a few features, we will contrast a couple assessments first. 
+
+```{r}
+#Format organization
+atac_labels.df<-data.frame(filename = crispr_coop_atac_reps.path) %>%
+  dplyr::mutate(scenario_state = basename(crispr_coop_atac_reps.path) %>% gsub('mesc_Btbd11_scenario_', '', .) %>% gsub('_cutsites.bw', '', .)) %>%
+  # tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+    tidyr::separate(col = 'scenario_state', into = c('scenario','state'), sep = '_coop_', remove = F) %>%
+    tidyr::separate(col = 'state', into = c('state','rep'), sep = '_atac_', remove = T) %>%
+    dplyr::mutate(state = factor(gsub('mut_', '', state), c('WT','A','B','null')))
+rownames(atac_labels.df)<-crispr_coop_atac_reps.path
+atac_labels.df
+
+#Consolidate counts
+atac.df<-crispr_coop_cov.df
+colnames(atac.df)<-crispr_coop_atac_reps.path
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = atac.df,
+                              colData = atac_labels.df,
+                              design = ~ state)
+dds <- DESeq(dds)
+```
+
+Show enrichment results.
+
+Within each scenario, do we see significance from the WT?
+
+```{r}
+deseq_comparisons.df<-lapply(c('WT'), function(x){
+  lapply(c('A','B','null'), function(y){
+    res <- results(dds, contrast = contraster(dds,
+                                              group1 = list(c("scenario", x), c("state", "WT")),
+                                              group2 = list(c("scenario", x), c("state", y)))) %>%
+      cbind(., atac_regions.gr %>% as.data.frame()) %>% as.data.frame %>% 
+      dplyr::mutate(signif = cut(padj, breaks = c(0, 0.001, 0.01, 0.05, 1), include.lowest = T, labels = c('***','**','*',''))) %>%
+      dplyr::filter(across_enhancer == 'Btbd11') %>% 
+      dplyr::mutate(state = y, scenario = x, comparison = paste0(x, ': WT vs ', y))
+  }) %>% rbindlist()
+}) %>% rbindlist()                
+
+deseq_comparisons.df
+```
+
+Visualize comparison plots with statistics attached:
+
+```{r}
+#Collect coverage
+crispr_coop_cov_combined.df<-mclapply(crispr_coop_atac_combined.path, function(x){
+  log(regionSums(atac_regions.gr, x))
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_coop_cov_combined.df)<-crispr_coop_atac_combined.path
+
+#Consolidate values
+crispr_coop_cov_w_coord_combined.df<-cbind(atac_regions.gr %>% as.data.frame, crispr_coop_cov_combined.df) %>% arrange(desc(across_enhancer))
+
+#Plot the sequencing depth imbalance.
+plot.list<-lapply(c('WT'), function(x){
+  compare.plot.list<-lapply(c('A','B','null'), function(y){
+
+    wt_sample<-paste0('bw/mesc_Btbd11_scenario_', x, '_coop_WT_atac_combined_normalized.bw')
+    mut_sample<-paste0('bw/mesc_Btbd11_scenario_', x, '_coop_mut_', y, '_atac_combined_normalized.bw')
+    
+    deseq.df<-deseq_comparisons.df %>% dplyr::filter(scenario == x, state ==y) %>%
+      data.frame(label = paste0('p=', .$padj, ', ', .$signif))
+    
+    plot<-ggplot(data = crispr_coop_cov_w_coord_combined.df, aes(x = .data[[wt_sample]], y = .data[[mut_sample]]))+
+      geom_abline(slope = 1, intercept = 0)+
+      ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+      # geom_point(data = crispr_coop_cov_w_coord.df %>% dplyr::filter(across_Btbd11_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+      ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+      geom_text(data = deseq.df, aes(x = 8, y = 4, label = label))+
+      ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+      scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+      scale_x_continuous(name = paste0(' log-reads across peaks'))+
+      scale_y_continuous(name = paste0(' log-reads across peaks'))+
+      ggtitle(paste0('Scenario: ', x, ', WT vs ', y, ' comparisons'))+
+      theme_classic() + theme(legend.position = 'none')
+      return(plot)
+  })
+  
+  compare.plot<-wrap_plots(compare.plot.list) + plot_layout(nrow = 1, ncol = 3)
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_diff_comparison_scenario_', x, '.png'), compare.plot, height = 3, width = 9)
+  ggsave(paste0(figure_filepath, '/Btbd11_crispr_coop_diff_comparison_scenario_', x, '.pdf'), compare.plot, height = 3, width = 9)
+})
+```
+
+# Visualize Akr1cl CRISPR
+
+## Read in perturbation data
+
+```{r}
+perturbs.df<-readr::read_tsv(context_perturbs_w_bias.path) %>% dplyr::mutate(state = factor(state, c('AB','A','B'))) %>% dplyr::mutate(pred_stranded = ifelse(channel==0, pred, pred*-1))
+scenarios.df<-readr::read_tsv(context_scenarios.path)
+
+perturbs.df %>% 
+  dplyr::group_by(state, model_name, task) %>%
+  dplyr::summarize(sum_pred = sum(pred)) %>%
+  tidyr::pivot_wider(names_from = state, values_from = sum_pred)
+```
+
+Report relative differences
+
+```{r}
+results.df<-perturbs.df %>%
+    dplyr::group_by(state, model_name, task) %>%
+    dplyr::summarize(preds = sum(pred)) %>%
+    tidyr::pivot_wider(names_from = state, values_from = preds) %>%
+    dplyr::mutate(AB_vs_B = AB/B,
+                  log_AB_vs_B = log(AB_vs_B),
+                  AB_vs_A = AB/A,
+                  log_AB_vs_A = log(AB_vs_A),)
+print(results.df)
+results.df %>% dplyr::select(model_name,task, AB_vs_A, log_AB_vs_A, AB_vs_B, log_AB_vs_B)
+```
+
+## Report summary differences
+
+For perturbations and experiments, what are the differences between the different scenarios and states?
+
+### Perturbations
+
+```{r}
+#Plot perturbation summaries
+perturbs_reads.plot<-perturbs.df %>% 
+  dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(context_genomic_window[1]:context_genomic_window[2])) %>%
+  dplyr::group_by(state) %>%
+  dplyr::summarize(sum_pred = sum(pred)) %>%
+  ggplot(., aes(x = state, y = sum_pred))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  theme_classic()
+perturbs_reads.plot
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary.png'), perturbs_reads.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary.pdf'), perturbs_reads.plot, width = 7, height = 3)
+```
+
+### Experiments
+
+```{r}
+reads.df<-lapply(1:2, function(z){
+  #Define files
+  atac_exp.bw.list<-list(
+    'AB' = paste0('../1_processing/bw/mesc_Btbd11_scenario_WT_coop_WT_atac_', z, '_cutsites_normalized.bw'),
+    'A' = paste0('../1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_atac_', z, '_cutsites_normalized.bw'),
+    'B' = paste0('../1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_atac_', z, '_cutsites_normalized.bw')
+  )
+  
+  #Collect reads
+  atac_reads.df<-lapply(names(atac_exp.bw.list), function(x){
+    gr<-GRanges(context_chrom, IRanges(start =context_genomic_window[1], end = context_genomic_window[2]))
+    df<-data.frame(reads = regionSums(gr, atac_exp.bw.list[[x]]),
+                   state = x,
+                   rep = z)
+  }) %>% rbindlist() 
+}) %>% rbindlist()
+
+#Collect summary values
+reads_summary.df<-reads.df %>% 
+  dplyr::group_by(state) %>%
+  dplyr::summarize(median_reads = median(reads))
+exp_reads.plot<-ggplot()+
+  geom_bar(data = reads_summary.df, aes(x = state, y = median_reads), stat = 'identity')+
+  geom_point(data = reads.df, aes(x = state, y = reads))+
+  coord_flip()+
+  theme_classic()
+exp_reads.plot
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_experimental_summary.png'), exp_reads.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_experimental_summary.pdf'), exp_reads.plot, width = 7, height = 3)
+```
+
+Process relevant ChIP-nexus data, normalize it, and summarize reads:
+
+```{r}
+nexus_rep.rds.list<-list(
+    'AB' = c('../1_processing/rdata/mesc_R1_sox2_nexus_15.granges.rds', 
+             '../1_processing/rdata/mesc_R1_sox2_nexus_16.granges.rds'),
+    'A' = c('../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_1.granges.rds',
+            '../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_2.granges.rds',
+            '../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_3.granges.rds'),
+    'B' = c('../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_1.granges.rds',
+            '../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_2.granges.rds',
+            '../1_processing/rdata/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_3.granges.rds')
+    )
+
+reads.df<-mclapply(names(nexus_rep.rds.list), function(z){
+  
+  #Collect reads
+  nexus_reads.df<-lapply(nexus_rep.rds.list[[z]], function(x){
+    rds<-readRDS(x) %>% resize(., 1, 'start')
+    total_reads<-length(rds)
+    gr<-GRanges(context_chrom, IRanges(start =context_genomic_window[1], end = context_genomic_window[2]))
+    
+    reads_in_region<-overlapsAny(rds, gr, ignore.strand = T) %>% sum()
+    reads_in_region_rpm<-reads_in_region/total_reads * 1000000
+    
+    df<-data.frame(reads = reads_in_region_rpm,
+                   rep = x,
+                   state = z)
+  }) %>% rbindlist() 
+}, mc.cores = 3) %>% rbindlist()
+
+#Collect summary values
+reads_summary.df<-reads.df %>% 
+  dplyr::group_by(state) %>%
+  dplyr::summarize(median_reads = median(reads))
+exp_reads.plot<-ggplot()+
+  geom_bar(data = reads_summary.df, aes(x = state, y = median_reads), stat = 'identity')+
+  geom_point(data = reads.df, aes(x = state, y = reads))+
+  coord_flip()+
+  theme_classic()
+exp_reads.plot
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_experimental_summary_nexus.png'), exp_reads.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_experimental_summary_nexus.pdf'), exp_reads.plot, width = 7, height = 3)
+
+t.test(reads.df %>% dplyr::filter(state == 'AB') %>% .$reads, reads.df %>% dplyr::filter(state == 'B') %>% .$reads)
+t.test(reads.df %>% dplyr::filter(state == 'AB') %>% .$reads, reads.df %>% dplyr::filter(state == 'A') %>% .$reads)
+```
+
+## Visualize predictions
+
+Plot raw data.
+
+```{r}
+acc.plot<-ggplot(perturbs.df %>% dplyr::filter(task %in% c('atac', 'sox2'), grepl('atac_wt|bpnet', model_name))) + 
+  geom_vline(xintercept = scenarios.df$genomic_center_distal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df$genomic_center_proximal, linetype = 'dashed')+
+  geom_line(aes(x = genomic_position, y = pred_stranded, color = state, group = interaction(channel, state)))+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  scale_y_continuous(name = 'Predicted ATAC-seq')+
+  scale_color_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  facet_grid(model_name ~ task, scales = 'free') + 
+  theme_classic()
+acc.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_perturbations_raw.png'), acc.plot, width = 10, height = 20)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_perturbations_raw.pdf'), acc.plot, width = 10, height = 20)
+```
+
+Plot smoothed data
+
+```{r}
+acc.plot<-ggplot(perturbs.df %>% dplyr::filter(model_name %in% c('atac_wt_fold1'))) + 
+  geom_vline(xintercept = scenarios.df$genomic_center_distal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df$genomic_center_proximal, linetype = 'dashed')+
+      stat_smooth(aes(x = genomic_position, y = pred_stranded, color = state, group = interaction(channel, state)), method = 'loess', span = .2)+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  scale_y_continuous(name = 'Predicted ATAC-seq')+
+  scale_color_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  facet_grid(model_name ~ task, scales = 'free') + 
+  theme_classic()
+acc.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_perturbations_smoothed.png'), acc.plot, width = 10, height = 5)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_perturbations_smoothed.pdf'), acc.plot, width = 10, height = 5)
+```
+
+## Visualize experimental data
+
+### Plot accessibility fragments
+
+```{r}
+atac_exp.bw.list<-list(
+  'AB' = 'bw/mesc_Btbd11_scenario_WT_coop_WT_atac_combined_normalized.bw',
+  'A' = 'bw/mesc_Akr1cl_scenario_context_mut_A_atac_combined_normalized.bw',
+  'B' = 'bw/mesc_Akr1cl_scenario_context_mut_B_atac_combined_normalized.bw'
+)
+
+atac_exp.df<-lapply(names(atac_exp.bw.list), function(x){
+  standard_metapeak_matrix(GRanges(context_chrom, IRanges(start =context_genomic_window[1], end = context_genomic_window[2])),
+                           atac_exp.bw.list[[x]], keep_region_coordinates = T) %>%
+    as.data.frame() %>% transpose() %>%
+    dplyr::rename(pred = V1) %>%
+    dplyr::mutate(genomic_position = context_genomic_window[1]:context_genomic_window[2],
+                  sample = x)
+}) %>% rbindlist() %>%
+  dplyr::mutate(sample = factor(sample, names(atac_exp.bw.list)))
+
+atac_exp.plot<-ggplot(atac_exp.df) +
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_distal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_proximal, linetype = 'dashed')+
+  geom_line(aes(x = genomic_position, y = pred, color = sample))+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+  scale_y_continuous(name = 'RPM-normalized ATAC-seq fragments')+
+  scale_color_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  theme_classic()
+
+atac_exp.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_fragments.png'), atac_exp.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_fragments.pdf'), atac_exp.plot, width = 7, height = 3)
+
+#Report relative fold change impacts
+atac_exp.df %>% dplyr::group_by(sample) %>%
+  dplyr::summarize(sum_reads = sum(pred))
+```
+
+### Plot accessibility cutsites
+
+```{r}
+atac_exp.bw.list<-list(
+  'AB' = 'bw/mesc_Btbd11_scenario_WT_coop_WT_atac_cutsites_combined_normalized.bw',
+  'A' = 'bw/mesc_Akr1cl_scenario_context_mut_A_atac_cutsites_combined_normalized.bw',
+  'B' = 'bw/mesc_Akr1cl_scenario_context_mut_B_atac_cutsites_combined_normalized.bw'
+)
+
+atac_exp.df<-lapply(names(atac_exp.bw.list), function(x){
+  standard_metapeak_matrix(GRanges(context_chrom, IRanges(start =context_genomic_window[1], end = context_genomic_window[2])),
+                           atac_exp.bw.list[[x]], keep_region_coordinates = T) %>%
+    as.data.frame() %>% transpose() %>%
+    dplyr::rename(pred = V1) %>%
+    dplyr::mutate(genomic_position = context_genomic_window[1]:context_genomic_window[2],
+                  sample = x)
+}) %>% rbindlist() %>%
+  dplyr::mutate(sample = factor(sample, names(atac_exp.bw.list)))
+
+atac_exp.plot<-ggplot(atac_exp.df) +
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_proximal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_distal, linetype = 'dashed')+
+  geom_line(aes(x = genomic_position, y = pred, color = sample), alpha = .5)+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+  scale_y_continuous(name = 'RPM-normalized ATAC-seq cuts')+
+  scale_color_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  theme_classic()
+atac_exp.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_cutsites_raw.png'), atac_exp.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_cutsites_raw.pdf'), atac_exp.plot, width = 7, height = 3)
+
+atac_exp.plot<-ggplot(atac_exp.df) +
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_proximal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_distal, linetype = 'dashed')+
+  stat_smooth(aes(x = genomic_position, y = pred, color = sample), method = 'loess', span = .2)+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+  scale_y_continuous(name = 'RPM-normalized ATAC-seq cuts')+
+  scale_color_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  theme_classic()
+atac_exp.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_cutsites_smoothed.png'), atac_exp.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_cutsites_smoothed.pdf'), atac_exp.plot, width = 7, height = 3)
+
+```
+
+### Plot ChIP-nexus data
+
+```{r}
+nexus_exp.bw.list<-list(
+  'AB_sox2' = list(pos = 'bw/mesc_R1_sox2_nexus_combined_normalized_positive.bw',
+                   neg = 'bw/mesc_R1_sox2_nexus_combined_normalized_negative.bw'),
+  'A_sox2' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_combined_normalized_positive.bw',
+                  neg = 'bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_combined_normalized_negative.bw'),
+  'B_sox2' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_combined_normalized_positive.bw',
+             neg = 'bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_combined_normalized_negative.bw'),
+  
+  'AB_klf4' = list(pos = 'bw/mesc_R1_klf4_nexus_combined_normalized_positive.bw',
+                   neg = 'bw/mesc_R1_klf4_nexus_combined_normalized_negative.bw'),
+  'A_klf4' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_combined_normalized_positive.bw',
+                  neg = 'bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_combined_normalized_negative.bw'),
+  'B_klf4' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_combined_normalized_positive.bw',
+             neg = 'bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_combined_normalized_negative.bw')
+)
+
+nexus_exp.df<-lapply(names(nexus_exp.bw.list), function(x){
+  mat<-exo_metapeak_matrix(GRanges(context_chrom, IRanges(start =context_genomic_window[1], end = context_genomic_window[2])),
+                           nexus_exp.bw.list[[x]], keep_region_coordinates = T) 
+  
+  df<-rbind(
+    mat$pos %>%
+    as.data.frame() %>% transpose() %>%
+    dplyr::rename(pred = V1) %>%
+    dplyr::mutate(genomic_position = context_genomic_window[1]:context_genomic_window[2],
+                  sample = x,
+                  channel = 'pos'),
+    mat$neg %>%
+    as.data.frame() %>% transpose() %>%
+    dplyr::rename(pred = V1) %>%
+    dplyr::mutate(genomic_position = context_genomic_window[1]:context_genomic_window[2],
+                  sample = x,
+                  pred = pred*-1,
+                  channel = 'neg')
+  )
+  return(df)
+}) %>% rbindlist() %>%
+  dplyr::mutate(sample = factor(sample, names(nexus_exp.bw.list))) %>%
+  tidyr::separate(sample, c('state', 'TF'), sep = '_') %>%
+  dplyr::mutate(state = factor(state, levels = c('AB','A','B')))
+
+nexus_exp.plot<-ggplot(nexus_exp.df) +
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_proximal, linetype = 'dashed')+
+  geom_vline(xintercept = scenarios.df %>% .$genomic_center_distal, linetype = 'dashed')+
+  geom_area(aes(x = genomic_position, y = pred, fill = state, group = interaction(state, channel)))+
+  scale_x_continuous(name = paste0('Genomic position (bp)'), limits = context_genomic_window)+
+  # scale_x_continuous(name = paste0('Genomic position (bp)'))+
+  scale_y_continuous(name = 'RPM-normalized ChIP-nexus reads')+
+  scale_fill_manual(name = 'State',values = c('black', '#fec44f', '#b2182b'))+
+  facet_grid(state ~ TF)+
+  theme_classic()
+nexus_exp.plot
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_nexus.png'), nexus_exp.plot, width = 7, height = 7)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_experiments_RPM_nexus.pdf'), nexus_exp.plot, width = 7, height = 7)
+
+```
+
+## Visualize contribution
+
+```{r}
+curated_enhancer_boundaries.gr<-GRanges(context_chrom, IRanges(context_genomic_window[1], context_genomic_window[2]))
+```
+
+Generate contribution scores of mapped motifs.
+
+```{r}
+curated_enhancer.df<-data.frame(
+  acc_contrib = standard_metapeak_matrix(regions.gr = curated_enhancer_boundaries.gr, sample.cov = 'shap/atac_wt_fold1_atac_counts.bw', 
+                                         keep_region_coordinates = T) %>% t(),
+  seq = getSeq(bsgenome, curated_enhancer_boundaries.gr, as.character = T) %>% stringr::str_split_1(pattern = ''),
+  position = start(curated_enhancer_boundaries.gr):end(curated_enhancer_boundaries.gr)
+)
+
+# Generate sequence logo
+acc_contrib.plot<-curated_enhancer.df %>%
+  tidyr::pivot_wider(names_from = seq, values_from = acc_contrib) %>% 
+  dplyr::select(A, C, G, T) %>% as.matrix() %>% t() %>%
+ggseqlogo(., method='custom', seq_type='dna') + 
+  scale_y_continuous(name = 'Acc. contribution.')+
+  scale_x_discrete(name = 'Genomic position (chr10, bp)')+
+  ggtitle('CRISPR enhancer')
+acc_contrib.plot
+ggsave(paste0(figure_filepath, '/crispr_context_candidate_contrib.png'), acc_contrib.plot, height = 2, width = 20)
+ggsave(paste0(figure_filepath, '/crispr_context_candidate_contrib.pdf'), acc_contrib.plot, height = 2, width = 20)
+```
+
+## Read in contribution scores and plot
+
+```{r}
+seqs.fa<-seqinr::read.fasta('fasta/crispr_context_seqs.fa')
+
+filler<-mclapply(Sys.glob('shap/crispr/crispr_context_*_counts.h5'), function(y){
+  contrib.h5<-rhdf5::h5read(y, '/')
+  
+  hyp_scores.list<-apply(contrib.h5$hyp_scores, 3, function(x){
+    as.data.frame(x) %>% transpose()
+  })
+  input_seqs.list<-apply(contrib.h5$input_seqs, 3, function(x){
+    df<-as.data.frame(x)
+    df<-dplyr::mutate_all(df, function(x) as.numeric(as.character(x)))
+    return(df %>% transpose)
+  })
+  
+  contrib.list<-lapply(1:length(hyp_scores.list), function(x){
+    mat<-input_seqs.list[[x]] * hyp_scores.list[[x]]
+    colnames(mat)<-c('A','C','G','T')
+    return(mat %>% t())
+  })
+  names(contrib.list)<-names(seqs.fa)
+  
+  #Visualize contribution scores
+  contrib.plot<- ggseqlogo(contrib.list, method='custom', seq_type='dna') + 
+    scale_y_continuous(name = 'Contribution') + 
+    scale_x_continuous(limits = c(800, 1100)) + 
+    facet_wrap(~seq_group, ncol=1, scales='free_x') +
+    theme(axis.line = element_line(), axis.ticks = element_line())+
+    ggtitle(y)
+  
+  ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_contribution_', basename(y), '.png'), contrib.plot, width = 16, height = 10)
+  ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_contribution_', basename(y), '.pdf'), contrib.plot, width = 16, height = 10)
+}, mc.cores = 6)
+```
+
+## Supplemental validations
+
+### Replicate validation
+
+Compare CRISPR ATAC-seq samples to make sure they're replicable. So only compare replicates here. 
+
+```{r}
+atac_regions.gr<-rtracklayer::import(atac_regions.path) %>% 
+  plyranges::mutate(across_Akr1cl = ifelse(overlapsAny(., GRanges(context_chrom, IRanges(start = context_genomic_window[1], end = context_genomic_window[2]))), 'Akr1cl','none'),
+                    across_enhancer = ifelse(overlapsAny(., dev_enhancers.gr), 'dev_enh', across_Akr1cl))
+
+#Collect coverage
+crispr_context_cov.df<-mclapply(crispr_context_atac_reps.path, function(x){
+  regionSums(atac_regions.gr, x)
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_context_cov.df)<-crispr_context_atac_reps.path
+
+#Consolidate values
+crispr_context_cov_w_coord.df<-cbind(atac_regions.gr %>% as.data.frame, crispr_context_cov.df) %>% arrange(desc(across_enhancer))
+
+#Plot the sequencing depth imbalance.
+plot.list<-mclapply(crispr_context_atac_reps.path %>% grep('_atac_1_cutsites.bw', ., value = T), function(x){
+  crispr_context_cov_w_coord.df$repa<-crispr_context_cov_w_coord.df[[x]]
+  crispr_context_cov_w_coord.df$repb<-crispr_context_cov_w_coord.df[[gsub('_1_', '_2_', x)]]
+
+  plot<-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(repa), y = log(repb)))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 2 log-reads across peaks'))+
+    ggtitle(basename(x) %>% gsub('_atac_1_cutsites.bw', '', .))+
+    theme_classic() + theme(legend.position = 'none')
+  
+  return(plot)
+}, mc.cores = 3)
+
+rep.plot<-wrap_plots(plot.list) + plot_layout(nrow = 1, ncol = 3)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_rep_comparison.png'), rep.plot, height = 3, width = 9)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_rep_comparison.pdf'), rep.plot, height = 3, width = 9)
+```
+
+Compare CRISPR ChIP-nexus replicates.
+
+```{r}
+sox2_regions.gr<-rtracklayer::import(sox2_regions.path) %>% 
+  plyranges::mutate(across_Akr1cl = ifelse(overlapsAny(., GRanges(context_chrom, IRanges(start = context_genomic_window[1], end = context_genomic_window[2]))), 'Akr1cl','none'),
+                    across_enhancer = ifelse(overlapsAny(., dev_enhancers.gr), 'dev_enh', across_Akr1cl))
+
+#Collect coverage
+crispr_context_cov.df<-mclapply(crispr_context_nexus_reps.path, function(x){
+  regionSums(sox2_regions.gr, x) + abs(regionSums(sox2_regions.gr, gsub('positive','negative',x)))
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_context_cov.df)<-crispr_context_nexus_reps.path
+
+#Consolidate values
+crispr_context_cov_w_coord.df<-cbind(sox2_regions.gr %>% as.data.frame, crispr_context_cov.df) %>% arrange(desc(across_enhancer))
+
+#Plot the sequencing depth imbalance.
+plot.list<-mclapply(crispr_context_nexus_reps.path %>% grep('_sox2_nexus_1_positive.bw', ., value = T), function(x){
+  crispr_context_cov_w_coord.df$repa<-crispr_context_cov_w_coord.df[[x]]
+  crispr_context_cov_w_coord.df$repb<-crispr_context_cov_w_coord.df[[gsub('_1_', '_2_', x)]]
+  crispr_context_cov_w_coord.df$repc<-crispr_context_cov_w_coord.df[[gsub('_1_', '_3_', x)]]
+
+  plotab<-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(repa), y = log(repb)))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 2 log-reads across peaks'))+
+    ggtitle(basename(x) %>% gsub('_sox2_1_cutsites.bw', '', .))+
+    theme_classic() + theme(legend.position = 'none')
+  plotac<-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(repa), y = log(repc)))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 3 log-reads across peaks'))+
+    ggtitle(basename(x) %>% gsub('_sox2_1_cutsites.bw', '', .))+
+    theme_classic() + theme(legend.position = 'none')
+  plotbc<-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(repb), y = log(repc)))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0('rep 2 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 3 log-reads across peaks'))+
+    ggtitle(basename(x) %>% gsub('_sox2_1_cutsites.bw', '', .))+
+    theme_classic() + theme(legend.position = 'none')
+  
+  return(plotab + plotac + plotbc)
+}, mc.cores = 3)
+
+rep.plot<-wrap_plots(plot.list) + plot_layout(nrow = 2, ncol = 1)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_rep_comparison.png'), rep.plot, height = 6, width = 9)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_rep_comparison.pdf'), rep.plot, height = 6, width = 9)
+
+
+plotwt<-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(`bw/mesc_R1_sox2_nexus_15_positive.bw`), y = log(`bw/mesc_R1_sox2_nexus_16_positive.bw`)))+
+  geom_abline(slope = 1, intercept = 0)+
+  ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+  # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+  scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+  scale_y_continuous(name = paste0('rep 2 log-reads across peaks'))+
+  ggtitle('WT')+
+  theme_classic() + theme(legend.position = 'none')
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_wt_rep_comparison.png'), plotwt, height = 3, width = 3)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_wt_rep_comparison.pdf'), plotwt, height = 3, width = 3)
+```
+
+### Developmental enhancer consistency
+
+Do our conditions and CRISPR mutants look consistent across regions of interest that are not the CRISPR locus?
+
+```{r}
+filler<-lapply(1:length(dev_enhancers.gr), function(x){
+  
+  metapeak.df<-mclapply(crispr_context_atac_combined.path, function(y){
+    standard_metapeak(resize(dev_enhancers.gr[x], 1, 'center'), y, downstream = 501, upstream = 500) %>%
+      dplyr::mutate(path = y, enhancer = dev_enhancers.gr[x]$name)
+  }, mc.cores = 8) %>% rbindlist() %>%
+    dplyr::mutate(scenario_state = basename(path) %>% gsub('mesc_Akr1cl_scenario_', '', .) %>% gsub('mesc_Btbd11_scenario_', '', .) %>% gsub('_atac_combined_normalized.bw', '', .),
+                  genomic_position = tss_distance + start(resize(dev_enhancers.gr[x], 1, 'center'))) %>%
+    tidyr::separate(col = 'scenario_state', into = c('scenario','state'), sep = 'context_|coop_', remove = F) %>%
+    dplyr::mutate(state = factor(gsub('mut_', '', state), c('WT','A','B')))
+    
+  
+  enhancer_name<-dev_enhancers.gr[x]$name
+  plot<-ggplot(metapeak.df, aes(x = genomic_position, y = reads, color = state))+
+    geom_line()+
+    scale_x_continuous(name = seqnames(dev_enhancers.gr[x])) + 
+    scale_y_continuous(name = 'RPM-normalized ATAC-seq fragments', limits = c(0, 5))+
+    scale_colour_manual(values = turbo(4, begin = .2, end = .8))+
+    ggtitle(enhancer_name)+
+    theme_classic()
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Akr1cl_crispr_context_comparison.png'), plot, height = 4, width = 4)
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Akr1cl_crispr_context_comparison.pdf'), plot, height = 4, width = 4)
+  return(NULL)
+})
+```
+
+Plot ChIP-nexus replicates as well
+
+```{r}
+filler<-lapply(1:length(dev_enhancers.gr), function(x){
+  
+  metapeak.df<-mclapply(crispr_context_nexus_combined.path, function(y){
+    exo_metapeak(resize(dev_enhancers.gr[x], 1, 'center'), list(pos = y, neg = gsub('positive','negative', y)), downstream = 501, upstream = 500) %>%
+      dplyr::mutate(path = y, enhancer = dev_enhancers.gr[x]$name) 
+  }, mc.cores = 8) %>% rbindlist() %>%
+    dplyr::mutate(scenario_state = basename(path) %>% gsub('mesc_Akr1cl_scenario_', '', .) %>% gsub('mesc_R1', 'context_WT', .) %>% gsub('_sox2_nexus_combined_normalized_positive.bw', '', .),
+                  genomic_position = tss_distance + start(resize(dev_enhancers.gr[x], 1, 'center'))) %>%
+    tidyr::separate(col = 'scenario_state', into = c('scenario','state'), sep = 'context_|coop_', remove = F) %>%
+    dplyr::mutate(state = factor(gsub('mut_', '', state), c('WT','A','B')))
+  # metapeak.df$reads[metapeak.df$strand=='-']<-metapeak.df$reads[metapeak.df$strand=='-']*-1
+  
+  enhancer_name<-dev_enhancers.gr[x]$name
+  plot<-ggplot(metapeak.df, aes(x = genomic_position, y = reads, color = state, group = interaction(strand, state)))+
+    geom_line()+
+    scale_x_continuous(name = seqnames(dev_enhancers.gr[x])) + 
+    scale_y_continuous(name = 'RPM-normalized sox2-seq fragments')+
+    scale_colour_manual(values = turbo(4, begin = .2, end = .8))+
+    ggtitle(enhancer_name)+
+    theme_classic()
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Akr1cl_crispr_context_nexus_comparison.png'), plot, height = 4, width = 4)
+  ggsave(paste0(figure_filepath, '/enhancers/', enhancer_name, '_Akr1cl_crispr_context_nexus_comparison.pdf'), plot, height = 4, width = 4)
+  return(NULL)
+})
+```
+
+### CRISPR mutant differential enrichment
+ 
+Run DESeq2 in order to measure whether CRISPR scenarios are significantly differentially enriched when we do these mutations. Since we are comparing a few features, we will contrast a couple assessments first. 
+
+```{r}
+#Collect coverage
+crispr_context_cov.df<-mclapply(crispr_context_atac_reps.path, function(x){
+  regionSums(atac_regions.gr, x)
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_context_cov.df)<-crispr_context_atac_reps.path
+
+#Format organization
+atac_labels.df<-data.frame(filename = colnames(crispr_context_cov.df)) %>%
+  dplyr::mutate(state = basename(crispr_context_atac_reps.path) %>% gsub('mesc_Akr1cl_scenario_context_', '', .) %>% gsub('mesc_Btbd11_scenario_WT_coop_', '', .) %>% gsub('_cutsites.bw', '', .)) %>%
+  # tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+    tidyr::separate(col = 'state', into = c('state','rep'), sep = '_atac_', remove = T) %>%
+    dplyr::mutate(state = factor(gsub('mut_', '', state), c('WT','A','B','null')))
+rownames(atac_labels.df)<-crispr_context_atac_reps.path
+atac_labels.df
+
+#Consolidate counts
+atac.df<-crispr_context_cov.df
+colnames(atac.df)<-crispr_context_atac_reps.path
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = atac.df,
+                              colData = atac_labels.df,
+                              design = ~ state)
+dds <- DESeq(dds)
+```
+
+Show enrichment results.
+
+```{r}
+deseq_comparisons.df<-lapply(c('A','B'), function(y){
+  res <- results(dds, contrast = c('state', 'WT', y)) %>%
+    cbind(., atac_regions.gr %>% as.data.frame()) %>% as.data.frame %>% 
+    dplyr::mutate(signif = cut(padj, breaks = c(0, 0.001, 0.01, 0.05, 1), include.lowest = T, labels = c('***','**','*',''))) %>%
+    dplyr::filter(across_enhancer == 'Akr1cl') %>% 
+    dplyr::mutate(state = y, comparison = paste0('Akr1cl enhancer: WT vs ', y))
+}) %>% rbindlist()
+
+deseq_comparisons.df
+```
+
+Visualize comparison plots with statistics attached:
+
+```{r}
+#Collect coverage
+crispr_context_cov_combined.df<-mclapply(crispr_context_atac_combined.path, function(x){
+  log(regionSums(atac_regions.gr, x))
+}, mc.cores = 4) %>% as.data.frame
+colnames(crispr_context_cov_combined.df)<-crispr_context_atac_combined.path
+
+#Consolidate values
+crispr_context_cov_w_coord_combined.df<-cbind(atac_regions.gr %>% as.data.frame, crispr_context_cov_combined.df) %>% arrange(desc(across_enhancer))
+
+
+#Plot the sequencing depth imbalance.
+compare.plot.list<-lapply(c('A','B'), function(y){
+  
+  wt_sample<-paste0('bw/mesc_Btbd11_scenario_WT_coop_WT_atac_combined_normalized.bw')
+  mut_sample<-paste0('bw/mesc_Akr1cl_scenario_context_mut_', y, '_atac_combined_normalized.bw')
+  
+  deseq.df<-deseq_comparisons.df %>% dplyr::filter(state ==y) %>%
+    data.frame(label = paste0('p=', .$padj, ', ', .$signif))
+  
+  plot<-ggplot(data = crispr_context_cov_w_coord_combined.df, aes(x = .data[[wt_sample]], y = .data[[mut_sample]]))+
+    geom_abline(slope = 1, intercept = 0)+
+    ggrastr::geom_point_rast(aes(color = across_enhancer), size = .1)+
+    # geom_point(data = crispr_context_cov_w_coord.df %>% dplyr::filter(across_Akr1cl_enhancer), aes(x = log(repa), y = log(repb)), size = .2, color = 'red')+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    geom_text(data = deseq.df, aes(x = 8, y = 4, label = label))+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_color_manual(values = c( 'red', 'navy', 'gray'))+
+    scale_x_continuous(name = paste0(' log-reads across peaks'))+
+    scale_y_continuous(name = paste0(' log-reads across peaks'))+
+    ggtitle(paste0('Scenario context WT vs ', y, ' comparisons'))+
+    theme_classic() + theme(legend.position = 'none')
+  return(plot)
+})
+
+compare.plot<-wrap_plots(compare.plot.list) + plot_layout(nrow = 1, ncol = 2)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_diff_comparison.png'), compare.plot, height = 3, width = 6)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_diff_comparison.pdf'), compare.plot, height = 3, width = 6)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

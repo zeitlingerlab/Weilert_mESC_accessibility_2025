@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_1	88877154	68275844	2901647	30806004	NA	NA	29.1	0.5208483943518872

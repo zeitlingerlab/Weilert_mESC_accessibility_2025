@@ -1,0 +1,1151 @@
+---
+title: 'Cooperativity of accessibility and binding'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this analysis is to assess cooperativity at the level of directional, additive, and multiplicative relationships between both binding and accessibility. We will be testing this over an unopened and preopened state in silico. We will also be testing this pairwise cooperativity based on the genomic perturbations (based on motif pairs existing in the mapped hits). 
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr);
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/12_cooperativity"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+
+dir.create(paste0(figure_filepath, '/insilico'), recursive = T, showWarnings = F)
+dir.create(paste0(figure_filepath, '/genomic'), recursive = T, showWarnings = F)
+dir.create(paste0(figure_filepath, '/pairs'), recursive = T, showWarnings = F)
+
+#Pre-existing variables
+threads <- 5
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+
+bind_motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4', 'Zic3' = 'zic3', 'Nanog' = 'nanog')
+bind_motif_to_task.df<-data.frame(key_task = bind_motif_to_task.list %>% unlist, raw_motifA = names(bind_motif_to_task.list))
+
+genomic_motifs.path<-'tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz'
+paired_perturbs.path<-'tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz'
+region.path<-'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz'
+models_of_interest<-c('atac_wt', 'bpnet_osknz')
+models.list<-list(bpnet_osknz = c('oct4','sox2','nanog','klf4','zic3'),
+                  atac_wt = c('atac'),
+                  atac_0h = c('atac'),
+                  atac_3h = c('atac'),
+                  atac_6h = c('atac'),
+                  atac_9h = c('atac'),
+                  atac_12h = c('atac'),
+                  atac_15h = c('atac'))
+region_ids_of_interest<-c(97547, 3491)
+
+distance_class_breaks<-c(0, 70, 180, 1000)
+distance_class_labels<-c('protein-range', 'nucleosome-range', 'enhancer-range')
+marginalized_affinities.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/all_showcase.tsv.gz')
+
+count_threshold<-20 #minimum frequency of grouped regions to compute median values
+
+input_length<-2032
+output_length<-1000
+flank<-(input_length - output_length)/2
+```
+
+As mentioned in `10_*`, we did not consider Oct4 only motif in cooperative motif pairs because of its ERV-heavy enrichment and lack of enough instances to impute a generalized syntax of accessibility or binding.
+
+# Depict theoretical saturation cooperativity effect
+
+"Second, we can exclude a model where each pioneer TF independently removes the same nucleosome with a certain probability, causing increased accessibility across the cell population. If this were the case, this would produce less than additive effects."
+
+Generate theoretical plot.
+
+```{r}
+set.seed(2356)
+saturation_premise.plot<-data.frame(o1 = sample(seq(0.01, 1, 0.01), size = 10000, replace = T),
+           o2 = sample(seq(0.01, 1, 0.01), size = 10000, replace = T)) %>%
+  dplyr::filter(o1 + o2 < 1) %>%
+  dplyr::mutate(p_open = 1- ((1-o1)*(1-o2)),
+                o_diff = abs(o1-o2)) %>%
+  ggplot(., aes(x  = o1 + o2, y = p_open, color = o_diff))+
+  geom_abline(slope = 1, intercept = 0, linetype = 'dashed')+
+  ggrastr::geom_point_rast(size = .1)+
+  scale_x_continuous(name = 'o1 + o2', limits = c(0, 1))+
+  scale_y_continuous(name = 'popen', limits = c(0, 1))+
+  scale_color_gradientn(name = 'abs(o1-o2)', colors = magma(10))+
+  theme_classic()
+saturation_premise.plot
+ggsave(paste0(figure_filepath, '/saturation_formula_graphic.png'), saturation_premise.plot, height = 4, width = 4)
+ggsave(paste0(figure_filepath, '/saturation_formula_graphic.pdf'), saturation_premise.plot, height = 4, width = 4)
+```
+
+# Assess perturb (context) cooperativity
+
+Given predicted mutations of in vivo motifs, do we observe cooperativity?
+
+## Import cooperativity predictions
+
+Import all general regions
+
+```{r}
+regions.df<-readr::read_tsv(region.path)
+```
+
+Read in paired perturbations and process.
+
+```{r}
+all_perturbs.df<-readr::read_tsv(paired_perturbs.path) %>%
+  dplyr::mutate(motif_pair_distance = abs(pattern_center.y - pattern_center.x)) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(motif_pair_ordered = paste(sort(c(motif.x, motif.y)), collapse = " vs "),
+                motif_pair_blind = paste0(motif.x, ' vs ', motif.y)) %>% 
+  #Remove directionality from pairs by removing one of A->B and B->A pairs
+  # dplyr::filter(motif_pair_ordered==motif_pair_blind) %>% 
+  dplyr::ungroup()
+
+# assert('Redundancies in motif pairs are still present', length(unique(all_perturbs.df %>% dplyr::filter(motif_pair_ordered == 'Klf4 vs Sox2') %>% .$motif.x %>% table))==1)
+```
+
+Collect perturbations and metadata of interest.
+
+```{r}
+perturbs.df<-mclapply(models_of_interest, function(x){
+  p.df<-lapply(models.list[[x]], function(task){
+    all_perturbs.df %>% 
+      dplyr::select(region_id, pair_name, pair_id, motif_pair_ordered, motif_pair_blind, motif_pair_distance, seq.x, seq.y,
+                    motif.x, motif.y, seq_match_quantile.x, seq_match_quantile.y,
+                    hAB_sum = !!sym(paste0(x, '/', task, '/hAB/pred_sum')),
+                    hB_sum = !!sym(paste0(x, '/', task, '/hB/pred_sum')),
+                    hA_sum = !!sym(paste0(x, '/', task, '/hA/pred_sum')),
+                    null_sum = !!sym(paste0(x, '/', task, '/null/pred_sum'))) %>%
+      dplyr::mutate(model_name = x,
+                    task = task,
+                    distance_class = cut(motif_pair_distance, 
+                                         breaks = distance_class_breaks, 
+                                         labels = distance_class_labels, 
+                                         include.lowest = T),
+                    add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+                    dir_coop = (hAB_sum - (hB_sum - null_sum))/(hA_sum),
+                    mult_coop = log(hAB_sum/null_sum)/log((hA_sum*hB_sum)/(null_sum*null_sum)),
+                    joint_effects = hAB_sum - null_sum,
+                    marginal_effects = hA_sum + hB_sum - 2*null_sum,
+                    A_effects = hA_sum - null_sum,
+                    B_effects = hB_sum - null_sum)
+  }) %>% rbindlist(.)
+}, mc.cores = 6) %>% rbindlist(.) %>%
+  dplyr::filter(motif_pair_distance<=400)
+```
+
+Collect perturbations for Rosa for her to assess features alongside her kinetics models.
+
+```{r}
+perturbs_processed.df<-lapply(names(bind_motif_to_task.list), function(y){
+  task<-bind_motif_to_task.list[[y]]
+  x<-'bpnet_osknz'
+  df<-all_perturbs.df %>% 
+    dplyr::filter(`motif.x`==y) %>%
+    dplyr::mutate(hAB_bind_sum = !!sym(paste0(x, '/', task, '/hAB/pred_sum')),
+                  hB_bind_sum = !!sym(paste0(x, '/', task, '/hB/pred_sum')),
+                  hA_bind_sum = !!sym(paste0(x, '/', task, '/hA/pred_sum')),
+                  null_bind_sum = !!sym(paste0(x, '/', task, '/null/pred_sum'))) %>%
+    dplyr::mutate(distance_class = cut(motif_pair_distance, 
+                                       breaks = distance_class_breaks, 
+                                       labels = distance_class_labels, 
+                                       include.lowest = T),
+                  add_bind_coop = (hAB_bind_sum - null_bind_sum)/(hA_bind_sum + hB_bind_sum - 2*null_bind_sum),
+                  dir_bind_coop = (hAB_bind_sum - (hB_bind_sum - null_bind_sum))/(hA_bind_sum),
+                  mult_bind_coop = log(hAB_bind_sum/null_bind_sum)/log((hA_bind_sum*hB_bind_sum)/(null_bind_sum*null_bind_sum)))
+  return(df)
+}) %>% rbindlist() %>%
+  dplyr::mutate(hAB_acc_sum = !!sym(paste0('atac_wt/atac/hAB/pred_sum')),
+                hB_acc_sum = !!sym(paste0('atac_wt/atac/hB/pred_sum')),
+                hA_acc_sum = !!sym(paste0('atac_wt/atac/hA/pred_sum')),
+                null_acc_sum = !!sym(paste0('atac_wt/atac/null/pred_sum'))) %>%
+  dplyr::mutate(distance_class = cut(motif_pair_distance, 
+                                     breaks = distance_class_breaks, 
+                                     labels = distance_class_labels, 
+                                     include.lowest = T),
+                add_acc_coop = (hAB_acc_sum - null_acc_sum)/(hA_acc_sum + hB_acc_sum - 2*null_acc_sum),
+                dir_acc_coop = (hAB_acc_sum - (hB_acc_sum - null_acc_sum))/(hA_acc_sum),
+                mult_acc_coop = log(hAB_acc_sum/null_acc_sum)/log((hA_acc_sum*hB_acc_sum)/(null_acc_sum*null_acc_sum)))
+
+readr::write_tsv(perturbs_processed.df, 'tsv/mapped_motifs/all_pairs_curated_0based_with_cooperativity.tsv.gz')
+```
+
+## Showcase uneven motif pair affinities
+
+We want to see whether very high and very low motif pairs are not cooperating as well as two mid-affinities. We mean: the absolute effect is not high because a low affinity motif can't contribute much and the high affinity motif won't really care. 
+
+First, select the top, middle, and bottom 5% of isolation scores of pioneers (independent of motif identity). This is a measurement of pioneering strength, independent of affinity.
+
+```{r}
+marg.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/all_marginalizations.tsv.gz') %>%
+  dplyr::left_join(perturbs.df %>% dplyr::select(`motif.x`, `seq.x`) %>% unique %>% dplyr::rename(seq = `seq.x`, motif = `motif.x`)) %>%
+  dplyr::filter(atac_wt_marg>0, motif %in% c('Oct4-Sox2','Sox2', 'Klf4')) %>%
+  # dplyr::filter(atac_wt_marg>0, motif %in% c('Oct4-Sox2', 'Sox2')) %>%
+  dplyr::group_by(motif) %>%
+  dplyr::mutate(atac_wt_marg_q = ecdf(atac_wt_marg)(atac_wt_marg))
+
+marg_candidates.df<-rbind(
+  marg.df %>% dplyr::filter(atac_wt_marg_q<=.25) %>% dplyr::mutate(marg_class = 'q_low'),
+  marg.df %>% dplyr::filter(atac_wt_marg_q<=.55, atac_wt_marg_q>=.45) %>% dplyr::mutate(marg_class = 'q_mid'),
+  marg.df %>% dplyr::filter(atac_wt_marg_q>=.75) %>% dplyr::mutate(marg_class = 'q_high')
+)
+
+#Isolate motifs that have very strong isolation scores, very weak isolation scores, and middling isolation scores.
+perturb_candidates.df<-perturbs.df %>% 
+  dplyr::filter(model_name == 'atac_wt', task == 'atac', motif_pair_ordered==motif_pair_blind, motif_pair_distance<=400, motif_pair_distance>=20) %>% #dont take redundant pairs
+  dplyr::left_join(marg_candidates.df %>% dplyr::mutate(`seq.x` = seq) %>% dplyr::select(`seq.x`, marg_class)) %>% 
+  dplyr::rename(`marg_class.x` = marg_class) %>% 
+  dplyr::left_join(marg_candidates.df %>% dplyr::mutate(`seq.y` = seq) %>% dplyr::select(`seq.y`, marg_class)) %>% 
+  dplyr::rename(`marg_class.y` = marg_class) %>%
+  dplyr::filter(!is.na(`marg_class.x`), !is.na(`marg_class.y`)) %>%
+  dplyr::mutate(paired_marg_class = paste0(`marg_class.x`, ' vs ', `marg_class.y`))
+
+ggplot(perturb_candidates.df, aes(paired_marg_class, fill = motif_pair_blind))+
+  geom_bar(position = 'dodge')+
+  theme_classic()
+```
+
+Plot the effects of different motif pairs based on their relative isolation scores.
+
+```{r}
+merged_class_index.df<-data.frame(paired_marg_class = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_low vs q_mid", "q_high vs q_mid", "q_high vs q_low", "q_mid vs q_high", "q_high vs q_high", "q_low vs q_high")) %>%
+  dplyr::mutate(paired_marg_class_merged = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_mid vs q_low", "q_high vs q_mid", "q_high vs q_low", "q_high vs q_mid", "q_high vs q_high", "q_high vs q_low") %>%
+                  factor(., levels = c("q_high vs q_low", "q_high vs q_mid", "q_high vs q_high", "q_mid vs q_mid", "q_mid vs q_low",  "q_low vs q_low")))
+
+perturb_candidates_tidy.df<-perturb_candidates.df %>% 
+  dplyr::mutate(AB = hAB_sum - null_sum,
+                A_unmerged = hA_sum - null_sum,
+                B_unmerged = hB_sum - null_sum,
+                null = null_sum) %>%
+  
+  #account for motifAmotifB or motifB motifA
+  dplyr::left_join(merged_class_index.df) %>%
+  tidyr::separate(paired_marg_class_merged, into = c('left_class','right_class'), sep = ' vs ', remove = F) %>%
+  dplyr::mutate(A = ifelse(paired_marg_class_merged==paired_marg_class, A_unmerged, B_unmerged),
+                B = ifelse(paired_marg_class_merged==paired_marg_class, B_unmerged, A_unmerged),
+                left_motif = ifelse(paired_marg_class_merged==paired_marg_class, `motif.x`, `motif.y`),
+                right_motif = ifelse(paired_marg_class_merged==paired_marg_class, `motif.y`, `motif.x`)) %>%
+  dplyr::select(-A_unmerged, -B_unmerged) %>%
+  tidyr::pivot_longer(cols = c(AB, A, B, null), names_to = 'state', values_to = 'effects')
+  
+#group and summarize levels
+perturb_candidates_summary.df<-perturb_candidates_tidy.df %>%
+  dplyr::group_by(state, paired_marg_class_merged) %>% #, motif_pair_blind) %>%
+  dplyr::summarize(med_effects = median(effects)) %>% 
+  dplyr::mutate(state = factor(state, levels = c('AB', 'A','B', 'null')))
+
+uneven_levels.plot<-ggplot(perturb_candidates_summary.df, aes(x = paired_marg_class_merged))+
+  geom_bar(aes(y = med_effects, fill = state), stat = 'identity', position = 'dodge')+
+  geom_bar(data = perturb_candidates_summary.df %>% tidyr::pivot_wider(names_from = 'state', values_from = 'med_effects'),
+           aes(y = A + B), stat = 'identity', position = 'dodge', fill = NA, width = .3, color = 'black')+
+  ggtitle('pred levels')+
+  # facet_grid(motif_pair_blind ~ .)+
+  theme_classic()
+
+# Measure which motifs went into each class.
+left_uneven_motifs.plot<-perturb_candidates_tidy.df %>%
+  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::summarize(freq = dplyr::n()) %>%
+  ggplot(., aes(x = paired_marg_class_merged))+
+  geom_bar(aes(y = freq, fill = left_motif), stat = 'identity', position = 'fill')+
+  ggtitle('motifA identities')+
+  theme_classic()  
+
+right_uneven_motifs.plot<-perturb_candidates_tidy.df %>%
+  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::summarize(freq = dplyr::n()) %>%
+  ggplot(., aes(x = paired_marg_class_merged))+
+  geom_bar(aes(y = freq, fill = right_motif), stat = 'identity', position = 'fill')+
+  ggtitle('motifB identities')+
+  theme_classic()  
+
+print(perturb_candidates_tidy.df %>%
+  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::summarize(freq = dplyr::n()))
+
+uneven.metaplot<-uneven_levels.plot + left_uneven_motifs.plot + right_uneven_motifs.plot + plot_layout(nrow = 1, widths = c(4, 1, 1))
+uneven.metaplot
+ggsave(paste0(figure_filepath, '/uneven_showcase.png'), uneven.metaplot, height = 4, width = 14)
+ggsave(paste0(figure_filepath, '/uneven_showcase.pdf'), uneven.metaplot, height = 4, width = 14)
+
+```
+
+## Determine motif pair order
+
+```{r}
+motif_pair_blind_order<-perturbs.df %>% 
+  dplyr::group_by(motif_pair_blind) %>% 
+  dplyr::filter(motif_pair_distance <= 200, motif_pair_distance >=40, task == 'atac') %>%
+  dplyr::summarize(y = median(add_coop)) %>% 
+  dplyr::arrange(y) %>% .$motif_pair_blind %>% unique
+
+motif_pair_ordered_order<-perturbs.df %>% 
+  dplyr::group_by(motif_pair_ordered) %>% 
+  dplyr::filter(motif_pair_distance <= 200, motif_pair_distance >=40, task == 'atac') %>%
+  dplyr::summarize(y = median(add_coop)) %>% 
+  dplyr::arrange(y) %>% .$motif_pair_ordered  %>% unique
+```
+
+## Assess joint vs marginal effects of each motif pair
+
+### Genomic
+
+```{r}
+j_vs_m_all.plot<- perturbs.df %>% 
+  ggplot(., aes(marginal_effects, joint_effects, color = distance_class))+
+  # geom_point(aes(color = color))+
+  geom_abline(slope = 1, intercept = 0, linetype = 'dotted') + 
+  ggrastr::geom_point_rast(size = .2)+
+  scale_x_continuous(name = 'Marginal effects (hA + hB - 2*h0)') + 
+  scale_y_continuous(name = 'Joint effects (hAB - h0)') +
+  scale_color_manual(name = 'Distance', values = c('#b2182b', '#7F467F', '#4b73d2'))+
+  facet_grid(model_name ~ .)+
+  theme_classic() + theme(panel.background = element_rect(fill = 'white'))
+ggsave(paste0(figure_filepath, '/genomic_perturbs_joint_vs_marg_colored_by_distance.png'), j_vs_m_all.plot, 
+       height = 4*length(models_of_interest), width = 6)
+ggsave(paste0(figure_filepath, '/genomic_perturbs_joint_vs_marg_colored_by_distance.pdf'), j_vs_m_all.plot, 
+       height = 4*length(models_of_interest), width = 6)
+```
+
+Plot all pairs separately
+
+```{r}
+#Color by distance
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+  message(x)
+  j_vs_m_all.plot<- perturbs.df %>% dplyr::filter(motif_pair_ordered == x) %>%
+    dplyr::arrange(rev(distance_class)) %>%
+    ggplot(., aes(marginal_effects, joint_effects, color = distance_class))+
+    # ggplot(., aes(marginal_effects, joint_effects))+
+    # geom_point(aes(color = color))+
+    geom_abline(slope = 1, intercept = 0, linetype = 'dotted') + 
+    ggrastr::geom_point_rast(size = .5)+
+    scale_x_continuous(name = 'Marginal effects (hA + hB - 2*h0)', limits = c(-1000, 15000)) + 
+    scale_y_continuous(name = 'Joint effects (hAB - h0)', limits = c(-1000, 15000)) +
+    scale_color_manual(name = 'Distance', values = viridis(n=3, begin = .2, end = 1))+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic() + theme(panel.background = element_rect(fill = 'white'))
+
+  # if(dim(perturbs.df %>% dplyr::filter(motif_pair_ordered==x, region_id %in% region_ids_of_interest))[1]>0){
+  #   j_vs_m_all.plot<-j_vs_m_all.plot + 
+  #     geom_point(data = perturbs.df %>% dplyr::filter(motif_pair_ordered==x, region_id %in% region_ids_of_interest), color = 'black') + 
+  #     geom_text(data = perturbs.df %>% dplyr::filter(motif_pair_ordered==x, region_id %in% region_ids_of_interest), aes(label = region_id))
+  # }
+  
+  plot<-j_vs_m_all.plot
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_joint_vs_marg_colored_by_distance_', x, '.png'), plot, 
+       height = 4, width = 5.5*length(models_of_interest)*1)
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_joint_vs_marg_colored_by_distance_', x, '.pdf'), plot, 
+       height = 4, width = 5.5*length(models_of_interest)*1)
+  return(NULL)
+})
+```
+
+## Summarize perturb. cooperativity (no distance)
+
+How does cooperativity compare across all motif pairs?
+
+```{r}
+summarize_all_pairs.plot<-perturbs.df %>%
+  dplyr::group_by(task, motif_pair_ordered) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_ordered_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  ggplot(., aes(x = task, y = motif_pair_ordered, fill = log(coop)))+
+  # geom_tile()+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = '', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = ' coop (log)')+
+  facet_grid(. ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_no_distance.png'), summarize_all_pairs.plot, height = 6, width = 12)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_no_distance.pdf'), summarize_all_pairs.plot, height = 6, width = 12)
+
+
+summarize_selected_pairs.plot<-perturbs.df %>%
+  dplyr::group_by(task, motif_pair_ordered) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_ordered_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  dplyr::filter(task == 'atac', coop_type == 'median_add_coop') %>%
+  ggplot(., aes(x = task, y = motif_pair_ordered, fill = log(coop)))+
+  # geom_tile()+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = '', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = ' coop (log)', limits = c(-.05, .12))+
+  facet_grid(. ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_no_distance.png'), summarize_selected_pairs.plot, height = 6, width = 4)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_no_distance.pdf'), summarize_selected_pairs.plot, height = 6, width = 4)
+```
+
+## Summarize cooperativity with low-affinity motif pairs (no distance)
+
+```{r}
+summarize_selected_pairs.plot<-perturbs_processed.df %>%
+  dplyr::filter(seq_match_quantile.x <= .25) %>%
+  dplyr::group_by(motif_pair_ordered) %>%
+  dplyr::summarize(median_add_acc_coop = median(add_acc_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>% 
+  ggplot(., aes(x = 1, y = motif_pair_ordered, fill = log(median_add_acc_coop)))+
+  # geom_tile()+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = '', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = ' coop (log)', limits = c(-.05, .12))+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaffinity_motifs_no_distance.png'), summarize_selected_pairs.plot, height = 6, width = 4)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaffinity_motifs_no_distance.pdf'), summarize_selected_pairs.plot, height = 6, width = 4)
+```
+
+## Summarize cooperativity (with distance)
+
+How does cooperativity compare across all motif pairs?
+
+```{r}
+summarize_all_distance.plot<-perturbs.df %>%
+  dplyr::group_by(task, motif_pair_ordered, motif_pair_distance) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(coop)))+
+  # geom_tile()+
+  ggrastr::geom_tile_rast()+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
+  facet_grid(task ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.png'), summarize_all_distance.plot, height = 20, width = 24)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.pdf'), summarize_all_distance.plot, height = 20, width = 24)
+
+
+summarize_selected_distance.plot<-perturbs.df %>%
+  dplyr::group_by(task, motif_pair_ordered, motif_pair_distance) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  dplyr::filter(task == 'atac', coop_type == 'median_add_coop') %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(coop)))+
+  # geom_tile()+
+  ggrastr::geom_tile_rast()+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
+  facet_grid(task ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.png'), summarize_selected_distance.plot, height = 6, width = 12)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.pdf'), summarize_selected_distance.plot, height = 6, width = 12)
+```
+
+## Median cooperativity by motif pair
+
+Plot the median cooperativity by motif pair
+
+```{r}
+summarize_all.plot<-perturbs.df %>%
+  dplyr::filter(task=='atac', motif_pair_distance <=300, motif_pair_distance >=30) %>%
+  dplyr::group_by(motif_pair_ordered) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = motif_pair_ordered, y = log(median_add_coop), fill = log(median_add_coop)))+
+  # geom_tile()+
+  geom_bar(stat = 'identity', position = 'dodge', color = 'black')+
+  scale_x_discrete(name = 'Motif pair') + 
+  scale_y_continuous(name = 'log(coop)') +
+  coord_flip()+
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop (log)')+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_medians.png'), summarize_all.plot, height = 10, width = 8)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_medians.pdf'), summarize_all.plot, height = 10, width = 8)
+```
+
+## Summarize cooperativity with low-affinity motif pairs (with distance)
+
+```{r}
+summarize_selected_distance.plot<-perturbs_processed.df %>%
+  dplyr::filter(seq_match_quantile.x <= .25) %>%
+  dplyr::group_by(motif_pair_ordered, motif_pair_distance) %>%
+  dplyr::summarize(median_add_acc_coop = median(add_acc_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(median_add_acc_coop)))+
+  # geom_tile()+
+  ggrastr::geom_tile_rast()+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)', limits = c(-.25, .6))+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaff_motifs_with_distance.png'), summarize_selected_distance.plot, height = 6, width = 12)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaff_motifs_with_distance.pdf'), summarize_selected_distance.plot, height = 6, width = 12)
+```
+
+## Assess impact of affinity over distance on cooperativity
+
+First, create summary groups and information by which to consolidate data.
+
+```{r}
+perturbs.df<-perturbs.df %>% as.data.frame %>%
+  dplyr::filter(!is.na(distance_class)) %>%
+  dplyr::mutate(distance_bin_narrow = plyr::round_any(motif_pair_distance, 5, ceiling),
+                distance_bin_medium = plyr::round_any(motif_pair_distance, 10, ceiling),
+                distance_bin_wide = plyr::round_any(motif_pair_distance, 20, ceiling),
+                ic_match_q_A = ifelse(`motif.x`==stringr::str_split(string = motif_pair_ordered, pattern = ' vs ', n = 1),
+                                      `seq_match_quantile.x`, `seq_match_quantile.y`),
+                ic_match_q_B = ifelse(`motif.x`==stringr::str_split(string = motif_pair_ordered, pattern = ' vs ', n = 1),
+                                      `seq_match_quantile.y`, `seq_match_quantile.x`),
+                motifA_ic_match_q_bin = plyr::round_any(ic_match_q_A, .25, ceiling),
+                motifB_ic_match_q_bin = plyr::round_any(ic_match_q_B, .25, ceiling),
+                affinity_bin = paste0(motifA_ic_match_q_bin, ' vs ', motifB_ic_match_q_bin))
+```
+
+Next assess impact of different metrics for each motif pair.
+
+```{r}
+genomic_affinity_summary.df<-perturbs.df %>%  
+  dplyr::left_join(., regions.df %>% dplyr::select(region_id, atac_obs, atac_pred, island_count)) %>%
+  dplyr::mutate(motifA_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_A, .25, ceiling),
+                motifB_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_B, .25, ceiling),
+                affinity_bin = paste0(motifA_ic_match_q_bin_narrow, ' vs ', motifB_ic_match_q_bin_narrow),
+                effect_size =  (hA_sum - null_sum) + (hB_sum - null_sum),
+                effect_size_A = (hA_sum - null_sum),
+                effect_size_B = (hB_sum - null_sum),
+                cooperative_effect_size = hAB_sum - (hA_sum + hB_sum - null_sum*2) - null_sum) %>%
+  dplyr::group_by(motif_pair_ordered, affinity_bin, motifB_ic_match_q_bin_narrow, motifA_ic_match_q_bin_narrow, distance_bin_medium, model_name) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_obs = median(atac_obs),
+                   median_pred = median(atac_pred),
+                   median_effect_size = median(effect_size),
+                   median_effect_size_A = median(effect_size_A),
+                   median_effect_size_B = median(effect_size_B),
+                   median_cooperative_effect_size = median(cooperative_effect_size),
+                   count = dplyr::n(),
+                   median_island_count = median(island_count)) %>%
+  dplyr::filter(count>=count_threshold)
+
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+  affinity_vs_coop.plot<-genomic_affinity_summary.df %>%
+    dplyr::filter(motif_pair_ordered==x) %>%
+    ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = log(median_add_coop)))+
+    geom_tile()+
+    scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+    scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+    scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. (log)')+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+  
+  affinity_vs_obs.plot<-genomic_affinity_summary.df %>%
+    dplyr::filter(motif_pair_ordered==x) %>%
+    ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_obs))+
+    geom_tile()+
+    scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+    scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+    scale_fill_gradient(high = '#7c576c', low = 'white', name = 'Obs ATAC')+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+  
+  affinity_vs_pred.plot<-genomic_affinity_summary.df %>%
+    dplyr::filter(motif_pair_ordered==x) %>%
+    ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_pred))+
+    geom_tile()+
+    scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+    scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+    scale_fill_gradient(high = '#30506e', low = 'white', name = 'pred ATAC')+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+
+  affinity_vs_effect_size.plot<-genomic_affinity_summary.df %>%
+    dplyr::filter(motif_pair_ordered==x) %>%
+    ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_effect_size))+
+    geom_tile()+
+    scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+    scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+    scale_fill_gradient(high = '#016c59', low = 'white', name = 'effect_size ATAC')+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+
+  # affinity_vs_effect_size_A.plot<-genomic_affinity_summary.df %>%
+  #   dplyr::filter(motif_pair_ordered==x) %>%
+  #   ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_effect_size_A))+
+  #   geom_tile()+
+  #   scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+  #   scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  #   scale_fill_gradient(high = '#016c59', low = 'white', name = 'effect_size ATAC A')+
+  #   ggtitle(x)+
+  #   facet_grid(. ~ model_name)+
+  #   theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+  # 
+  # affinity_vs_effect_size_B.plot<-genomic_affinity_summary.df %>%
+  #   dplyr::filter(motif_pair_ordered==x) %>%
+  #   ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_effect_size_B))+
+  #   geom_tile()+
+  #   scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+  #   scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  #   scale_fill_gradient(high = '#016c59', low = 'white', name = 'effect_size ATAC B')+
+  #   ggtitle(x)+
+  #   facet_grid(. ~ model_name)+
+  #   theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+  
+  affinity_vs_coop_effect_size.plot<-genomic_affinity_summary.df %>%
+    dplyr::filter(motif_pair_ordered==x) %>%
+    ggplot(., aes(x = distance_bin_medium,  y = affinity_bin, fill = median_cooperative_effect_size))+
+    geom_tile()+
+    scale_x_continuous(name = 'Distances', limits = c(0, 300)) + 
+    scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+    scale_fill_gradient(high = '#9e8931', low = 'white', name = 'coop_effect_size ATAC')+
+    ggtitle(x)+
+    facet_grid(. ~ model_name)+
+    theme_classic()+  theme(panel.background = element_rect(fill = 'gray'), legend.position = 'bottom')
+
+  metaplot<-affinity_vs_obs.plot + affinity_vs_pred.plot + affinity_vs_effect_size.plot + affinity_vs_coop_effect_size.plot + affinity_vs_coop.plot + 
+    plot_layout(nrow = 1)
+  
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_metaplots_vs_selected_affinity_and_distance_heatmaps_', x, '.png'), metaplot, height = 6, width = 24)
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_metaplots_vs_selected_affinity_and_distance_heatmaps_', x, '.pdf'), metaplot, height = 6, width = 24)
+})
+
+```
+
+## Assess effect sizes at all motifs
+
+Collect activity and nearest gene distance across regions.
+
+```{r}
+regions.gr<-GenomicRanges::resize(makeGRangesFromDataFrame(regions.df), 2000, 'center')
+```
+
+Cooperativity summaries.
+
+```{r}
+affinity_groups_of_interest<-c('0.25 vs 0.25', '0.5 vs 0.5', '1 vs 1')
+genomic_by_affinity.df<-perturbs.df %>%  
+  dplyr::left_join(., regions.df %>% dplyr::select(region_id, atac_obs, atac_pred, island_count, nearest_gene_distance, CpG_ratio)) %>%
+  dplyr::mutate(motifA_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_A, .25, ceiling),
+                motifB_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_B, .25, ceiling),
+                affinity_bin = paste0(motifA_ic_match_q_bin, ' vs ', motifB_ic_match_q_bin)) %>%
+  dplyr::filter(distance_class != 'long-range') %>%
+  dplyr::group_by(motif_pair_ordered, affinity_bin, distance_class) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_obs = median(atac_obs),
+                   median_pred = median(atac_pred),
+                   count = dplyr::n(),
+                   median_nearest_gene_distance = median(nearest_gene_distance),
+                   median_island_count = median(island_count),
+                   median_CpG_ratio = median(CpG_ratio)) %>%
+  dplyr::filter(count>=count_threshold, affinity_bin %in% affinity_groups_of_interest)  %>%
+  dplyr::mutate(affinity_bin = factor(affinity_bin, levels = affinity_groups_of_interest, labels = c('low', 'medium','high')), 
+                motif_pair_ordered = factor(motif_pair_ordered, motif_pair_ordered_order))
+  
+affinity_vs_coop.plot<-ggplot(genomic_by_affinity.df, aes(x = distance_class, y = motif_pair_ordered, fill = log(median_add_coop)))+
+  # geom_tile()+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = 'Distance class', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Add. coop (log)')+
+  facet_wrap(~affinity_bin, nrow = 1)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+affinity_vs_obs.plot<-ggplot(genomic_by_affinity.df, aes(x = distance_class, y = motif_pair_ordered, fill = median_obs))+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = 'Distance class', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient(high = '#7c576c', low = 'white', name = 'Obs ATAC')+
+  ggtitle('Obs')+
+  facet_wrap(~affinity_bin, nrow = 1)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+  
+affinity_vs_pred.plot<-ggplot(genomic_by_affinity.df, aes(x = distance_class, y = motif_pair_ordered, fill = median_pred))+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = 'Distance class', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient(high = '#30506e', low = 'white', name = 'pred ATAC')+
+  ggtitle('Pred')+
+  facet_wrap(~affinity_bin, nrow = 1)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+affinity_vs_CpG_ratio.plot<-ggplot(genomic_by_affinity.df, aes(x = distance_class, y = motif_pair_ordered, fill = median_CpG_ratio))+
+  geom_tile(color = 'black', size = .5)+
+  scale_x_discrete(name = 'Distance class', expand = c(0,0)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) + 
+  scale_fill_gradient(high = 'navy', low = 'white', name = 'median_CpG_ratio')+
+  ggtitle('median_CpG_ratio')+
+  facet_wrap(~affinity_bin, nrow = 1)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+plot<-affinity_vs_coop.plot + affinity_vs_obs.plot + affinity_vs_pred.plot + affinity_vs_CpG_ratio.plot
+
+ggsave(paste0(figure_filepath, '/genomic_perturbs_effects_vs_selected_affinity_and_distance_class_heatmaps.png'), plot, height = 8, width = 16)
+ggsave(paste0(figure_filepath, '/genomic_perturbs_effects_vs_selected_affinity_and_distance_class_heatmaps.pdf'), plot, height = 8, width = 16)
+
+```
+
+## Assess saturation effects on cooperativity
+
+If there are two extremely high affinity motifs, then will they show high cooperativity? Or will they saturate because the region is already sufficiently open?
+
+```{r}
+ranked.df<-perturbs_processed.df %>%
+  dplyr::filter(motif_pair_blind == 'Oct4-Sox2 vs Oct4-Sox2') %>%
+  dplyr::mutate(A_effects = hAB_acc_sum - hA_acc_sum,
+                B_effects = hAB_acc_sum - hB_acc_sum,
+                AB_effects = A_effects + B_effects)
+
+ranked_effects_dist<-ecdf(c(ranked.df$A_effects, ranked.df$B_effects))
+ranked_sum_dist<-ecdf(c(ranked.df$A_effects + ranked.df$B_effects))
+
+#Take motif pairs that contain exactly the same quantile range of response.
+#This is done to filter "equally strong or equally weak motifs in terms of the response they evoke, not affinity or arrangement"
+
+ranked_filtered.df<-ranked.df %>%
+  dplyr::mutate(log_add_acc_coop = log(add_acc_coop),
+                AB_q = ranked_sum_dist(AB_effects),
+                AB_q_bin = plyr::round_any(AB_q, .01, ceiling),
+                A_q = ranked_effects_dist(ranked.df$A_effects),
+                B_q = ranked_effects_dist(ranked.df$B_effects),
+                A_q_bin = plyr::round_any(A_q, .1, ceiling),
+                B_q_bin = plyr::round_any(B_q, .1, ceiling),
+                A_q_bin_smaller = plyr::round_any(A_q, .1, ceiling)) %>%
+  dplyr::filter(A_q_bin==B_q_bin)
+
+#Summarize by quantile effects to get stable plot
+rank_summary.df<-ranked_filtered.df %>%
+  dplyr::group_by(A_q_bin_smaller) %>%
+  dplyr::summarize(med_log_add_acc_coop = median(log_add_acc_coop, na.rm = T),
+                   med_distance = median(motif_pair_distance),
+                   freq = dplyr::n())
+
+saturation_effects.plot<-ggplot(rank_summary.df, aes(x = A_q_bin_smaller, y = med_log_add_acc_coop))+#, color = med_distance))+
+  geom_point()+
+  scale_x_continuous(name = 'Quantile of matched, individual Oct4-Sox2 motif effects')+
+  scale_y_continuous(name = 'Median accessibility cooperativity')+
+  # scale_color_gradientn(colors = viridis(10))+
+  theme_classic()
+saturation_effects.plot
+ggsave(paste0(figure_filepath, '/saturation_effect_matched_OS_medians.png'), saturation_effects.plot, height = 4, width = 6)
+ggsave(paste0(figure_filepath, '/saturation_effect_matched_OS_medians.pdf'), saturation_effects.plot, height = 4, width = 6)
+```
+
+## Examine relationship between affinity and cooperativity
+
+In our thermodynamics modeling, we observe that affinity and cooperativity are correlated (even relatively). In our data, we also observe this, albeit weakly. How do these two things compare?
+
+```{r}
+coop_vs_aff.plot<-perturbs.df %>%  
+  dplyr::filter(!grepl('Zic3|Nanog', motif_pair_ordered)) %>%
+  dplyr::filter(motifA_ic_match_q_bin==motifB_ic_match_q_bin) %>%
+  dplyr::mutate(motifA_ic_match_q_bin = factor(motifA_ic_match_q_bin, levels = c(0.25, 0.5, 0.75, 1))) %>%
+  ggplot(., aes(x = log(add_coop), color = motifA_ic_match_q_bin, group = motifA_ic_match_q_bin))+
+  geom_density()+
+  facet_grid(motif.x~motif.y)+
+  scale_x_continuous(limits = c(-2, 2))+
+  theme_classic()
+ggsave(paste0(figure_filepath, '/coop_vs_affinity_density.png'), coop_vs_aff.plot, height = 8, width = 16)
+ggsave(paste0(figure_filepath, '/coop_vs_affinity_density.pdf'), coop_vs_aff.plot, height = 8, width = 16)
+```
+
+## Statistics on low-affinity motif effects
+
+### ANOVA test on (coop ~ distance + affinityA * affinityB)
+
+Are low-affinity motifs less cooperative than high-affinity motifs? Statistically model this.
+
+```{r}
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+
+  p.df<-perturbs.df %>% dplyr::filter(motif_pair_ordered==x, model_name=='atac_wt')
+  aov.test<-summary(aov(add_coop ~ motifA_ic_match_q_bin*motifB_ic_match_q_bin+motif_pair_distance, data = p.df))
+  print(x)
+  print(aov.test)
+})
+```
+
+### KS test on obs vs pred medians
+
+```{r}
+# KS test: Are the distributions the same (z-normalize to correct for scaling differences, not relevant to biology)
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+  
+  message(x)
+  p.df<-perturbs.df %>%  
+    dplyr::left_join(., regions.df %>% dplyr::select(region_id, atac_obs, atac_pred)) %>%
+    dplyr::filter(motif_pair_ordered==x, model_name=='atac_wt') %>%
+    
+    dplyr::group_by(motif_pair_distance, affinity_bin) %>%
+    dplyr::summarize(count = dplyr::n(),
+                     median_obs = median(atac_obs),
+                     median_pred = median(atac_pred)) %>%
+    dplyr::mutate(atac_obs_znorm = (median_obs - mean(median_obs))/sd(median_obs),
+                  atac_pred_znorm = (median_pred - mean(median_pred))/sd(median_pred)) 
+  
+  print(ks.test(p.df$atac_obs_znorm, p.df$atac_pred_znorm))
+})
+
+# Correlation values: Do observed and predicted medians across these groups follow same trends?
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+  
+  message(x)
+  p.df<-perturbs.df %>%  
+    dplyr::left_join(., regions.df %>% dplyr::select(region_id, atac_obs, atac_pred)) %>%
+    dplyr::filter(motif_pair_ordered==x, model_name=='atac_wt') %>%
+    
+    dplyr::group_by(motif_pair_distance, affinity_bin) %>%
+    dplyr::summarize(count = dplyr::n(),
+                     median_obs = median(atac_obs),
+                     median_pred = median(atac_pred)) %>%
+    dplyr::mutate(atac_obs_znorm = (median_obs - mean(median_obs))/sd(median_obs),
+                  atac_pred_znorm = (median_pred - mean(median_pred))/sd(median_pred)) 
+  
+  print(cor(p.df$median_obs, p.df$median_pred, method = 'spearman'))
+})
+```
+
+## Visualize motif affinity bins as line plots
+
+Showcase alternative cooperativity across affinity plot.
+
+```{r}
+filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
+  
+  affinity_summary.df<-perturbs.df %>%  
+    dplyr::filter(motif_pair_ordered==x, model_name=='atac_wt') %>%
+    dplyr::group_by(motif_pair_distance, affinity_bin) %>%
+    dplyr::summarize(median_add_coop = median(add_coop),
+                     count = dplyr::n()) %>%
+    dplyr::filter(count>=count_threshold)
+  
+  affinity_coop_line_linear.plot<-ggplot(affinity_summary.df, aes(x = motif_pair_distance, y = log(median_add_coop), color = affinity_bin))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    ggrastr::geom_point_rast()+
+    geom_smooth(method = "lm", se = FALSE)+
+    scale_color_manual(values = viridis(n = affinity_summary.df$affinity_bin %>% unique %>% length))+
+    theme_classic()
+  affinity_coop_line_log.plot<-ggplot(affinity_summary.df, aes(x = motif_pair_distance, y = log(median_add_coop), color = affinity_bin))+
+    geom_hline(yintercept = 0, linetype = 'dashed')+
+    ggrastr::geom_point_rast()+
+    # geom_smooth(method = "glm", formula = y~x, method.args = list(family = gaussian(link = 'log')), se = F)+
+    geom_smooth(method="nls", se=FALSE, formula=y~a*log(x)+k, method.args=list(start=c(a=1, k=affinity_summary.df %>% dplyr::filter(motif_pair_distance==50) %>% .$median_add_coop %>% max(.))))+
+    scale_color_manual(values = viridis(n = affinity_summary.df$affinity_bin %>% unique %>% length))+
+    theme_classic()
+  
+  affinity_coop_line.plot<-affinity_coop_line_linear.plot + affinity_coop_line_log.plot
+
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_affinity_and_distance_lineplots_', x, '.png'), affinity_coop_line.plot, height = 6, width = 12)
+  ggsave(paste0(figure_filepath, '/genomic/genomic_perturbs_affinity_and_distance_lineplots_', x, '.pdf'), affinity_coop_line.plot, height = 6, width = 12)
+  
+  df<-mclapply(affinity_summary.df$affinity_bin %>% unique, function(y){
+    linear_rsq <- function(x, y) summary(lm(y~x))$r.squared
+    logy_rsq <- function(x, y) summary(lm(log(y)~x))$r.squared
+    logx_rsq <- function(x, y) summary(lm(y~log(x)))$r.squared
+    
+    df<-affinity_summary.df %>% dplyr::filter(affinity_bin==y, motif_pair_distance<=200)
+    rsq.df<-data.frame(affinity_bin = y, 
+               motif_pair = x, 
+               linear_rsq = linear_rsq(df$motif_pair_distance, df$median_add_coop) %>% round(., 2),
+               logy_rsq = logy_rsq(df$motif_pair_distance, df$median_add_coop) %>% round(., 2),
+               logx_rsq = logx_rsq(df$motif_pair_distance, df$median_add_coop) %>% round(., 2))
+    return(rsq.df)
+  }, mc.cores = 8) %>% rbindlist()
+  return(df)
+}) %>% rbindlist()
+
+print(filler)
+```
+
+# Assess marginalized (isolated) cooperativity
+
+Given predicted injections of high- and low-affinity motifs into random sequence (no context), do they show cooperativity?
+
+## Import paired marginalization scores
+
+Read in paired marginalizations and process.
+
+```{r}
+margs.df<-lapply(c('bpnet_osknz', 'atac_wt'), function(x){
+  marg.df<-Sys.glob(paste0('tsv/insilico/marginalizations/motif_pairs/affinity_vs_distance_', x, '*.tsv.gz')) %>%
+    mclapply(., function(y){
+      message(y)
+      df<-readr::read_tsv(y) %>% dplyr::mutate(distance = as.numeric(distance)) %>% dplyr::rename(motif_pair_distance = distance, motif.x = motifA, motif.y = motifB) 
+      
+      pair.df<-lapply(models.list[[x]], function(task){
+        lapply(df$motif.x %>% unique, function(z){
+          motifA.df<-df %>% dplyr::filter(motif.x==z) %>%
+            dplyr::mutate(pred_from_task = exp(!!sym(task)),
+                          task = task) %>%
+            dplyr::select(-c(models.list[[x]]))
+          
+          if(length(df$motif.x %>% unique)==1){
+            motifA.df<-motifA.df %>% dplyr::filter(state=='AB') %>% dplyr::rename(hAB_sum = pred_from_task) %>% dplyr::select(-state) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='A') %>% dplyr::rename(hA_sum = pred_from_task) %>% dplyr::select(-c(state, seqB, motif.y))) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='B') %>% dplyr::rename(hB_sum = pred_from_task) %>% dplyr::select(-c(state, seqA, motif.x))) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='null') %>% dplyr::rename(null_sum = pred_from_task) %>% dplyr::select(-c(state, seqA, seqB, motif_pair_distance))) %>%
+              dplyr::mutate(task = task, model_name = x)
+          } else {
+            motifA.df<-motifA.df %>% dplyr::filter(state=='AB') %>% dplyr::rename(hAB_sum = pred_from_task) %>% dplyr::select(-state) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='A') %>% dplyr::rename(hA_sum = pred_from_task) %>% dplyr::select(-c(state, seqB, motif.y, motif_pair_distance)) %>%
+                                 dplyr::group_by(seqA, motif.x) %>% dplyr::summarize(hA_sum = mean(hA_sum)) ) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='B') %>% dplyr::rename(hB_sum = pred_from_task) %>% dplyr::select(-c(state, seqA, motif.x, motif_pair_distance)) %>%
+                                 dplyr::group_by(seqB, motif.y) %>% dplyr::summarize(hB_sum = mean(hB_sum)) ) %>%
+              dplyr::left_join(., motifA.df %>% dplyr::filter(state=='null') %>% dplyr::rename(null_sum = pred_from_task) %>% dplyr::select(-c(state, seqA, seqB, motif_pair_distance))) %>%
+              dplyr::mutate(task = task, model_name = x)
+          }
+          return(motifA.df)
+        }) %>% rbindlist()
+      }) %>% rbindlist()
+    }, mc.cores = 8) %>% rbindlist() %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(motif_pair_ordered = paste(sort(c(motif.x, motif.y)), collapse = " vs "),
+                  motif_pair_blind = paste0(motif.x, ' vs ', motif.y)) %>% 
+    #Remove directionality from pairs by removing one of A->B and B->A pairs
+    # dplyr::filter(motif_pair_ordered==motif_pair_blind) %>% 
+    dplyr::ungroup()
+  
+  marg.df<-marg.df %>%
+    dplyr::mutate(distance_class = cut(motif_pair_distance, 
+                                       breaks = distance_class_breaks, 
+                                       labels = distance_class_labels, 
+                                       include.lowest = T),
+                  add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+                  dir_coop = (hAB_sum - (hB_sum-null_sum))/(hA_sum),
+                  mult_coop = log(hAB_sum/null_sum)/log((hA_sum*hB_sum)/(null_sum*null_sum)),
+                  joint_effects = hAB_sum - null_sum,
+                  marginal_effects = hA_sum + hB_sum - 2*null_sum,
+                  A_effects = hA_sum - null_sum,
+                  B_effects = hB_sum - null_sum,
+                  model_name = x)
+}) %>% rbindlist(fill = TRUE)
+readr::write_tsv(margs.df, 'tsv/insilico/all_marginalizations_formatted.tsv.gz')
+```
+
+Above, saved as an intermediate file. Read in intermediate file.
+
+```{r}
+margs.df<-readr::read_tsv('tsv/insilico/all_marginalizations_formatted.tsv.gz') %>% as.data.frame()
+```
+
+First, create summary groups and information by which to consolidate data.
+
+```{r}
+margs.df<-margs.df %>% as.data.frame %>%
+  dplyr::mutate(distance_bin_narrow = plyr::round_any(motif_pair_distance, 5, ceiling),
+                distance_bin_medium = plyr::round_any(motif_pair_distance, 10, ceiling),
+                distance_bin_wide = plyr::round_any(motif_pair_distance, 20, ceiling)) %>%
+  dplyr::left_join(., marginalized_affinities.df %>% dplyr::select(motif, affinity, seq) %>% dplyr::rename(seqA = seq, affinityA = affinity, motif.x = motif)) %>%
+  dplyr::left_join(., marginalized_affinities.df %>% dplyr::select(motif, affinity, seq) %>% dplyr::rename(seqB = seq, affinityB = affinity, motif.y = motif))
+```
+
+## Summarize marg. cooperativity
+
+```{r}
+pc_ratio<-.2
+
+#Group by distance  
+marg_distance_summary.df<-margs.df %>%  
+  dplyr::filter(model_name == 'atac_wt') %>%
+  dplyr::group_by(motif_pair_distance, motif_pair_ordered, model_name, affinityA, affinityB) %>%
+  dplyr::mutate(add_coop_w_pc = ((hAB_sum - null_sum) + null_sum*pc_ratio)/((hA_sum + hB_sum - 2*null_sum)+ null_sum*pc_ratio)) %>%
+  dplyr::summarize(median_add_coop = median(add_coop, na.rm = T),
+                   median_mult_coop = median(mult_coop, na.rm = T),
+                   median_add_coop_w_pc = median(add_coop_w_pc, na.rm = T))
+
+
+marg_distance_summary.df<-marg_distance_summary.df%>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, motif_pair_ordered_order))
+# 
+# 
+#                   add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+#                   mult_coop = log(hAB_sum/null_sum)/log((hA_sum*hB_sum)/(null_sum*null_sum)),
+
+coop_heatmap.plot<-ggplot(marg_distance_summary.df, aes(motif_pair_distance, motif_pair_ordered, fill = log(median_add_coop_w_pc)))+
+  ggrastr::geom_tile_rast()+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
+  facet_grid(affinityA ~ affinityB)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+coop_heatmap.plot
+ggsave(paste0(figure_filepath, '/insilico_margs_coop_add_heatmap.png'), coop_heatmap.plot, height = 4, width = 10)
+ggsave(paste0(figure_filepath, '/insilico_margs_coop_add_heatmap.pdf'), coop_heatmap.plot, height = 4, width = 10)
+
+
+```
+
+# Testing the half-nucleosome theory: Moyle-Heyrman...Widom (2011)
+
+"Taken together, these results mean that binding of LexA protein near the end of the nucleosomal DNA cooperatively influences the behavior of DNA stretches elsewhere in the nucleosome."
+
+"In summary, our new assays confirm our previous theoretical analysis, revealing significant positive cooperativity between diverse sites on the same side of the nucleosome, but in addition show that this positive cooperativity does not extend to diverse sites on the other side of the nucleosome."
+
+Do we see this also to be the case?
+
+First, format the data and collect dyad location information.
+
+```{r}
+#Import dyad functions and information
+source('/n/projects/mw2098/shared_code/rscripts/dyad_distance_functions.R')
+dyads.gr<-rtracklayer::import('/n/projects/mw2098/analysis/chemical_mapping/mm10/H3Q85C/bed/mm10_GSM2183909_nucleosome_centers.bed.gz')
+
+#Import motif pairs with coordinate information
+perturbs_processed.gr<-perturbs_processed.df %>%
+  makeGRangesFromDataFrame(seqnames.field = 'seqnames.x', start.field = 'start.x', end.field = 'end.x', strand.field = 'strand.x', keep.extra.columns = T, starts.in.df.are.0based = F) 
+
+#Find where dyads are respectively to motif.x
+perturbs_processed.gr<-lapply(perturbs_processed.gr$motif.x %>% unique, function(x){
+  compute_instance_to_dyad_distance(instances.gr = perturbs_processed.gr %>% plyranges::filter(motif.x == x), 
+                                    dyads.gr = dyads.gr)
+}) %>% as('GRangesList') %>% unlist()
+```
+
+Next, organize and classify data.
+
+```{r}
+perturbs_processed_w_dyads.df<-perturbs_processed.gr %>%
+  plyranges::mutate(dyad_dist_from_x = start - dyad_location,
+                    dyad_dist_from_y = (start.y) - dyad_location,
+                    pair_dyad_state = ifelse(dyad_dist_from_x*dyad_dist_from_y>0, 'same_side', 'opposite_sides')) %>%
+  plyranges::filter(abs(dyad_dist_from_x)<75, abs(dyad_dist_from_y)<75, motif.x %in% c('Oct4-Sox2','Sox2','Klf4'),
+                    motif.y %in% c('Oct4-Sox2','Sox2','Klf4')) %>%
+  as.data.frame %>%
+  dplyr::arrange(motif_pair_ordered, dyad_dist_from_x, dyad_dist_from_y, add_acc_coop)
+
+coop.boxplot<-ggplot(perturbs_processed_w_dyads.df %>% dplyr::filter(motif_pair_distance <70, motif_pair_distance >50), 
+                     aes(x = motif_pair_ordered, y = log(add_acc_coop), fill = pair_dyad_state))+
+  geom_boxplot()+
+  ggpubr::stat_compare_means(method = 'wilcox', label = 'p.signif')+
+  theme_classic()
+coop.boxplot
+```
+
+Visualize
+
+```{r}
+perturbs_processed_w_dyads_summary.df<-perturbs_processed_w_dyads.df %>%
+  dplyr::filter(motif_pair_blind == 'Sox2 vs Sox2', start.y>start) %>%
+  dplyr::mutate(motif_pair_distance_group = plyr::round_any(motif_pair_distance, accuracy = 10, f = ceiling),
+                dyad_vs_x_group = plyr::round_any(dyad_dist_from_x, accuracy = 10, f = ceiling),
+                dyad_vs_y_group = plyr::round_any(dyad_dist_from_y, accuracy = 10, f = ceiling)) %>%
+  dplyr::group_by(motif_pair_distance_group, dyad_vs_x_group, dyad_vs_y_group, pair_dyad_state) %>%
+  dplyr::summarize(count = dplyr::n(), med_acc_coop = median(add_acc_coop)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(row = 1:nrow(.)) 
+
+pair_vs_dyad.plot<-ggplot(perturbs_processed_w_dyads_summary.df) +
+   geom_segment(aes(x = dyad_vs_x_group, y = row, xend = dyad_vs_y_group, yend = row, color = pair_dyad_state))+
+  # geom_rect(aes(xmin = dyad_dist_from_x, xmax = dyad_dist_from_y, ymin = row, ymax = row, color = count, fill = count), )+
+  scale_x_continuous(name = 'distance from dyad (bp)')+
+  scale_y_continuous(name = 'motif pairs (ordered by motif pair distance -> dyad position)')+
+  scale_color_manual(name = 'Nucleosome state', values = c('#f1a340', '#998ec3'))+
+  ggtitle('Motif pair positions relative dyads')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop.plot<-ggplot(perturbs_processed_w_dyads_summary.df) +
+  geom_tile(aes(x = 1, y = row, fill = log(med_acc_coop)))+
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Add. coop (log)')+
+  scale_x_continuous(name = '')+
+  scale_y_continuous(name = 'motif pairs (ordered by motif pair distance -> dyad position)')+
+  ggtitle('Med. cooperativity')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop_line.plot<-ggplot(perturbs_processed_w_dyads_summary.df) +
+  geom_hline(yintercept = 0, linetype = 'dotted')+
+   geom_line(aes(y = log(med_acc_coop), x = row))+
+  geom_point(aes(y = log(med_acc_coop), x = row, color = pair_dyad_state), size = .5)+
+  scale_x_continuous(name = 'Add. coop (log)')+
+  scale_x_continuous(name = 'motif pairs (ordered by motif pair distance -> dyad position)')+
+  scale_color_manual(name = 'Nucleosome state', values = c('#f1a340', '#998ec3'))+
+  coord_flip()+
+  ggtitle('Med. cooperativity')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+
+plot<-pair_vs_dyad.plot + coop_line.plot + coop.plot + plot_layout(widths = c(2, 1, 1))
+ggsave(paste0(figure_filepath, '/half_nucleosome_hypothesis_Sox2_vs_Sox2.png'), plot, height = 6, width = 8)
+ggsave(paste0(figure_filepath, '/half_nucleosome_hypothesis_Sox2_vs_Sox2.pdf'), plot, height = 6, width = 8)
+```
+
+We really dont see evidence for this.
+
+# Conclusions
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```

@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_Akr1cl_scenario_context_mut_A_atac_2	163098916	163068118	7467401	122331900	34283015	78.1	80.5	NA

@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+GSE174774_mesc_atac_recovery_9h_1	57855487	57683625	3475367	35829318	19148817	65.2	66.7	NA

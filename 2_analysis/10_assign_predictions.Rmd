@@ -1,0 +1,469 @@
+---
+title: 'Assign all model-derived perturbations'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this analysis is to:
+
++ collect single-mutation genomic perturbations from accessibility and binding models
++ group and visualize paired genomic perturbations to investigate hierarchy
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/10_assign_predictions"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+source("scripts/r/perturb_functions.r")
+
+#Pre-existing variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+
+input_length<-2032
+output_length<-1000
+flank_length<-(input_length - output_length)/2
+
+bind_motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Oct4' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4', 'Zic3' = 'zic3', 'Nanog' = 'nanog')
+bind_motif_to_task.df<-data.frame(key_task = bind_motif_to_task.list %>% unlist, raw_motifA = names(bind_motif_to_task.list))
+acc_motif_to_task.list<-list('Oct4-Sox2' = 'atac', 'Oct4' = 'atac', 'Sox2' = 'atac', 'Klf4' = 'atac', 'Zic3' = 'atac', 'Nanog' = 'atac')
+acc_motif_to_task.df<-data.frame(key_task = acc_motif_to_task.list %>% unlist, raw_motifA = names(acc_motif_to_task.list))
+
+genomic_motifs.path<-'tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz'
+xiong_genomic_motifs.path<-'tsv/genomic/motifs/xiong_instances_formatted_for_genomic_perturbations_0based.tsv.gz'
+models.list<-list(bpnet_osknz = c('oct4','sox2','nanog','klf4','zic3'),
+                  atac_wt = c('atac'),
+                  atac_0h = c('atac'),
+                  atac_3h = c('atac'),
+                  atac_6h = c('atac'),
+                  atac_9h = c('atac'),
+                  atac_12h = c('atac'),
+                  atac_15h = c('atac'))
+```
+
+# Format single and paired perturbations from R1 mESC models
+
+## Import all motifs used in perturbations
+
+Import the canonical curated motif set. Here the motifs are derived from the set where we took all motifs regardless of motif state to apply.
+
+```{r}
+#Assign unique mutation ids
+instances.df<-readr::read_tsv(genomic_motifs.path) %>% 
+  as.data.frame() %>%
+  dplyr::group_by(region_id, motif) %>% 
+  dplyr::mutate(motif_num = dplyr::row_number(),
+                pattern_center = floor((motif_window_end - motif_window_start)/2) + motif_window_start - flank_length) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(pattern_name_unique = paste0(motif, "-", motif_num))
+
+#Show how many motifs will be assessed
+instances.df$motif %>% table
+```
+
+Now we need to identify motif pairs.
+
+```{r}
+#These motif pairs are A->B and B->A out of binding directionality necessity.
+motif_pairs.df<-tidyr::crossing(instances.df$motif %>% unique,
+                                instances.df$motif %>% unique) 
+colnames(motif_pairs.df)<-c('motifA','motifB')
+```
+
+## Extract single perturbations
+
+Extract binding and accessibility perturbations across motifs for each model<->TF. 
+
+```{r}
+instances_w_perturbs.df<-mclapply(instances.df$chrom %>% unique, function(x){
+  message(x)
+  chr.df<-instances.df %>% dplyr::filter(chrom == x)
+  
+  i_models.df<-lapply(names(models.list), function(y){
+    
+    i_task.df<-lapply(models.list[[y]], function(task){
+      message(x,'_', y, '_',task)
+      
+      #For each chromosome, import perturbations
+      perturbs_for_motifs.df<-readr::read_tsv(paste0('tsv/genomic/motifs/genomic_pertubs_whole_window_', y, '_', x, '.tsv.gz'))
+      
+      dA_pc<-paste0(task, '/dA/pc')
+      dA_sum<-paste0(task, '/dA/pred_sum')
+      WT_pc<-paste0(task, '/WT/pc')
+      WT_sum<-paste0(task, '/WT/pred_sum')
+      
+      #Find the different knockout pairwise situations and collect across pairs
+      i.df<- chr.df %>%
+        as.data.frame() %>%
+        #Get WT data
+        dplyr::left_join(., perturbs_for_motifs.df %>% 
+                           dplyr::filter(mut=='Reference') %>% 
+                           dplyr::rename(!!WT_pc := paste0(task, '/pc'), !!WT_sum := paste0(task, '/pred_sum')) %>%
+                           dplyr::select(region_id, WT_pc, WT_sum), 
+                         by = 'region_id') %>%
+        #Get dA (hB) data (when motifA is mutated)
+        dplyr::left_join(., perturbs_for_motifs.df %>%
+                           dplyr::filter(mut %in% unique(instances.df$pattern_name_unique)) %>%
+                           dplyr::rename(pattern_name_unique = mut, !!dA_pc := paste0(task, '/pc'), !!dA_sum := paste0(task, '/pred_sum')) %>%
+                           dplyr::select(region_id, pattern_name_unique, !!dA_pc, !!dA_sum), 
+                         by = c('region_id', 'pattern_name_unique')) 
+      return(i.df %>% dplyr::select(!!dA_pc, !!dA_sum, !!WT_pc, !!WT_sum))
+    }) %>% dplyr::bind_cols(.)
+    colnames(i_task.df) <- paste0(y, '/', colnames(i_task.df))
+    return(i_task.df)
+  }) %>% dplyr::bind_cols(.) %>% cbind(chr.df, .)
+}, mc.cores = 6) %>% rbindlist(.)
+```
+
+### Save data
+
+```{r}
+readr::write_tsv(instances_w_perturbs.df, 'tsv/mapped_motifs/all_instances_curated_0based_w_perturb.tsv.gz')
+```
+
+## Assign paired perturbations
+
+Here, we want to assign paired sets of perturbations for all motif pairs. The motifs used are identified above. 
+
+Note: we left off Oct4 motifs because only a few were mapped to the genome <300 and we cannot extrapolate paired syntax with other motifs with so few examples. 
+
+```{r, eval = F}
+motif_pairs.df<-motif_pairs.df %>% dplyr::filter(motifA!='Oct4', motifB !='Oct4')
+
+pairs_w_all_perturbs.df<-mclapply(1:nrow(motif_pairs.df), function(x){
+  #These motif pairs are A->B and B->A out of binding directionality necessity.
+  message(x)
+  
+  #For each motif pair group
+  motifA<-motif_pairs.df$motifA[x]
+  motifB<-motif_pairs.df$motifB[x]
+  # task<-bind_motif_to_task.list[[motifA]]
+  message(motifA,)
+  
+  pair.df<-find_motif_pairs(name_x = motifA, name_y = motifB, dfi = instances.df, merge_by = 'region_id', 
+                            motif_column = 'motif', motif_unique_column = 'pattern_name_unique', 
+                            motif_start_column = 'start', motif_end_column = 'end', remove_overlapping = T) %>%
+    #add this filter to make sure ONLY A to B is found, and not B to A. 
+    #The motif pair combinations will B to A in the loop. We do this to make sure motifA is also the modelA that is being measured.
+    dplyr::filter(`motif.x`==motifA, `motif.y`==motifB) %>% 
+    dplyr::mutate(pair_name_unique = paste0(`pattern_name_unique.x`, '_', `pattern_name_unique.y`))
+  
+  pair_names_all<-c(unique(pair.df$pair_name_unique),
+                    lapply(unique(pair.df$pair_name_unique), function(x){
+                      stringr::str_split(x, '_') %>% unlist(.) %>% rev(.) %>% paste0(., collapse = '_')
+                    }) %>% unlist)
+
+
+  pair_w_perturbs.df<-lapply(pair.df$`chrom.x` %>% unique, function(c){
+    message(c)
+    chr.df<-pair.df %>% dplyr::filter(`chrom.x` == c)
+  
+    i_models.df<-lapply(names(models.list), function(y){
+    
+      i_task.df<-lapply(models.list[[y]], function(task){
+        message(c,'_', y, '_',task)
+      
+        #For each chromosome, import perturbations
+        perturbs_for_motifA.df<-readr::read_tsv(paste0('tsv/genomic/motifs/genomic_pertubs_whole_window_', y, '_', c, '.tsv.gz'))
+
+        #Find the different knockout pairwise situations and collect across pairs
+        i.df<- chr.df %>%
+          as.data.frame() %>%
+          #Get WT data
+          dplyr::left_join(., perturbs_for_motifA.df %>% 
+                             dplyr::filter(mut=='Reference') %>% 
+                             dplyr::rename(bind_hAB_pc = paste0(task, '/pc'), bind_hAB_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, bind_hAB_pc, bind_hAB_sum), 
+                           by = 'region_id') %>%
+          #Get dA (hB) data (when motifA is mutated)
+          dplyr::left_join(., perturbs_for_motifA.df %>%
+                             dplyr::filter(mut %in% unique(pair.df$pattern_name_unique.x)) %>%
+                             dplyr::rename(`pattern_name_unique.x` = mut, bind_hB_pc = paste0(task, '/pc'), bind_hB_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, `pattern_name_unique.x`, bind_hB_pc, bind_hB_sum), 
+                           by = c('region_id', 'pattern_name_unique.x')) %>%
+          #Get dB (hA) perturbations (when motifB is mutated)
+          dplyr::left_join(., perturbs_for_motifA.df %>%
+                             dplyr::filter(mut %in% unique(pair.df$pattern_name_unique.y)) %>%
+                             dplyr::rename(`pattern_name_unique.y` = mut, bind_hA_pc = paste0(task, '/pc'), bind_hA_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, `pattern_name_unique.y`, bind_hA_pc, bind_hA_sum), 
+                           by = c('region_id', 'pattern_name_unique.y')) %>%  
+          #Get dAB (null) perturbations (when both motifA and motifB are mutated)
+          dplyr::left_join(., rbind(perturbs_for_motifA.df %>%
+                                      dplyr::filter(mut %in% c(pair_names_all)) %>%
+                                      tidyr::separate(col = mut, into = c('motifA', 'motifB'), sep = '_') %>%
+                                      dplyr::mutate(mut = paste0(motifA, '_', motifB)),
+                                    perturbs_for_motifA.df %>%
+                                      dplyr::filter(mut %in% c(pair_names_all)) %>%
+                                      tidyr::separate(col = mut, into = c('motifA', 'motifB'), sep = '_') %>%
+                                      dplyr::mutate(mut = paste0(motifB, '_', motifA))) %>%
+                             dplyr::rename(pair_name_unique = mut, bind_null_pc = paste0(task, '/pc'), bind_null_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, pair_name_unique, bind_null_pc, bind_null_sum), 
+                           by = c('region_id', 'pair_name_unique')) 
+        i_formatted.df<-i.df %>% 
+          dplyr::select(bind_hAB_pc, bind_hAB_sum, bind_hB_pc, bind_hB_sum, bind_hA_pc, bind_hA_sum, bind_null_pc, bind_null_sum)
+        colnames(i_formatted.df)<-paste0(y, '/', task, '/', rep(c('hAB', 'hB','hA','null'), 1, each = 2), '/', rep(c('pc', 'pred_sum'), 4))
+        return(i_formatted.df)
+      }) %>% dplyr::bind_cols(.)
+      return(i_task.df)
+    }) %>% dplyr::bind_cols(.) %>% cbind(chr.df, .)
+  }) %>% rbindlist(.)
+}, mc.cores = 6) %>% rbindlist()
+
+readr::write_tsv(pairs_w_all_perturbs.df, 'tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz')
+```
+
+# Format single and paired perturbations from Xiong models
+
+From the Xiong et al (2022) paper with Oct concentration depletion timecourse, format perturbations and paired perturbations.
+
+## Import all motifs used in perturbations
+
+Import the canonical curated motif set. Here the motifs are derived from the set where we took all motifs regardless of motif state to apply.
+
+```{r}
+#Assign unique mutation ids
+instances.df<-readr::read_tsv(xiong_genomic_motifs.path) %>% 
+  dplyr::group_by(region_id, motif) %>% 
+  dplyr::mutate(motif_num = dplyr::row_number(),
+                pattern_center = floor((motif_window_end - motif_window_start)/2) + motif_window_start - flank_length) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(pattern_name_unique = paste0(motif, "-", motif_num)) %>%
+  as.data.frame()
+
+#Show how many motifs will be assessed
+instances.df$motif %>% table
+```
+
+Now we need to identify motif pairs.
+
+```{r}
+#These motif pairs are A->B and B->A out of binding directionality necessity.
+motif_pairs.df<-tidyr::crossing(instances.df$motif %>% unique,
+                                instances.df$motif %>% unique) 
+colnames(motif_pairs.df)<-c('motifA','motifB')
+```
+
+## Extract single perturbations
+
+Extract binding and accessibility perturbations across motifs for each model<->TF. 
+
+```{r}
+instances_w_perturbs.df<-lapply(instances.df$chrom %>% unique, function(x){ # %>% grep('chrX', ., invert = T, value = T)
+  message(x)
+  chr.df<-instances.df %>% dplyr::filter(chrom == x)
+  
+  i_models.df<-lapply(names(models.list), function(y){
+    
+    i_task.df<-lapply(models.list[[y]], function(task){
+      message(x,'_', y, '_',task)
+      
+      #For each chromosome, import perturbations
+      perturbs_for_motifs.df<-readr::read_tsv(paste0('tsv/genomic/motifs/genomic_perturbs_xiong_whole_window_', y, '_', x, '.tsv.gz'))
+      
+      # 
+      # 
+      # perturbs_for_motifs.df %>% dplyr::filter(stringr::str_count(pattern = '_', mut) %>% unlist()==0) %>%
+      #   dplyr::mutate(mut = gsub('Oct4-Sox2', 'Oct4Sox2', mut)) %>%
+      #   tidyr::separate(mut, into = c('motif', 'num'), sep= '-') %>%
+      #   dplyr::filter(num==1 | is.na(num)) %>%
+      #   dplyr::group_by(motif) %>% dplyr::summarize(med_atac = median(`atac/pred_sum`))
+      # 
+      # readr::read_tsv(paste0('tsv/genomic/motifs/genomic_pertubs_whole_window_', y, '_', x, '.tsv.gz')) %>% dplyr::filter(stringr::str_count(pattern = '_', mut) %>% unlist()==0) %>%
+      #   dplyr::mutate(mut = gsub('Oct4-Sox2', 'Oct4Sox2', mut)) %>%
+      #   tidyr::separate(mut, into = c('motif', 'num'), sep= '-') %>%
+      #   dplyr::filter(num==1 | is.na(num)) %>%
+      #   dplyr::group_by(motif) %>% dplyr::summarize(med_atac = median(`atac/pred_sum`))
+      # 
+      # 
+      # 
+      # 
+      
+      dA_pc<-paste0(task, '/dA/pc')
+      dA_sum<-paste0(task, '/dA/pred_sum')
+      WT_pc<-paste0(task, '/WT/pc')
+      WT_sum<-paste0(task, '/WT/pred_sum')
+      
+      #Find the different knockout pairwise situations and collect across pairs
+      i.df<- chr.df %>%
+        as.data.frame() %>%
+        #Get WT data
+        dplyr::left_join(., perturbs_for_motifs.df %>% 
+                           dplyr::filter(mut=='Reference') %>% 
+                           dplyr::rename(!!WT_pc := paste0(task, '/pc'), !!WT_sum := paste0(task, '/pred_sum')) %>%
+                           dplyr::select(region_id, WT_pc, WT_sum), 
+                         by = 'region_id') %>%
+        #Get dA (hB) data (when motifA is mutated)
+        dplyr::left_join(., perturbs_for_motifs.df %>%
+                           dplyr::filter(mut %in% unique(instances.df$pattern_name_unique)) %>%
+                           dplyr::rename(pattern_name_unique = mut, !!dA_pc := paste0(task, '/pc'), !!dA_sum := paste0(task, '/pred_sum')) %>%
+                           dplyr::select(region_id, pattern_name_unique, !!dA_pc, !!dA_sum), 
+                         by = c('region_id', 'pattern_name_unique')) 
+      return(i.df %>% dplyr::select(!!dA_pc, !!dA_sum, !!WT_pc, !!WT_sum))
+    }) %>% dplyr::bind_cols(.)
+    colnames(i_task.df) <- paste0(y, '/', colnames(i_task.df))
+    return(i_task.df)
+  }) %>% dplyr::bind_cols(.) %>% cbind(chr.df, .)
+}) %>% rbindlist(.)
+```
+
+### Save data
+
+```{r}
+readr::write_tsv(instances_w_perturbs.df, 'tsv/mapped_motifs/all_xiong_instances_curated_0based_w_perturb.tsv.gz')
+```
+
+## Assign paired perturbations
+
+Here, we want to assign paired sets of perturbations for all motif pairs. The motifs used are identified above. 
+
+Note: we left off Oct4 motifs because only a few were mapped to the genome <300 and we cannot extrapolate paired syntax with other motifs with so few examples. 
+
+```{r, eval = F}
+motif_pairs.df<-motif_pairs.df %>% dplyr::filter(motifA!='Oct4', motifB !='Oct4')
+
+pairs_w_all_perturbs.df<-mclapply(1:nrow(motif_pairs.df), function(x){
+  #These motif pairs are A->B and B->A out of binding directionality necessity.
+  message(x)
+  
+  #For each motif pair group
+  motifA<-motif_pairs.df$motifA[x]
+  motifB<-motif_pairs.df$motifB[x]
+  # task<-bind_motif_to_task.list[[motifA]]
+  message(motifA,motifB)
+  
+  pair.df<-find_motif_pairs(name_x = motifA, name_y = motifB, dfi = instances.df, merge_by = 'region_id', 
+                            motif_column = 'motif', motif_unique_column = 'pattern_name_unique', 
+                            motif_start_column = 'start', motif_end_column = 'end', remove_overlapping = T) %>%
+    #add this filter to make sure ONLY A to B is found, and not B to A. 
+    #The motif pair combinations will B to A in the loop. We do this to make sure motifA is also the modelA that is being measured.
+    dplyr::filter(`motif.x`==motifA, `motif.y`==motifB) %>% 
+    dplyr::mutate(pair_name_unique = paste0(`pattern_name_unique.x`, '_', `pattern_name_unique.y`))
+  
+  pair_names_all<-c(unique(pair.df$pair_name_unique),
+                    lapply(unique(pair.df$pair_name_unique), function(x){
+                      stringr::str_split(x, '_') %>% unlist(.) %>% rev(.) %>% paste0(., collapse = '_')
+                    }) %>% unlist)
+
+
+  pair_w_perturbs.df<-lapply(pair.df$`chrom.x` %>% unique, function(c){ # %>% grep('chrX', ., invert = T, value = T)
+    message(c)
+    chr.df<-pair.df %>% dplyr::filter(`chrom.x` == c)
+  
+    i_models.df<-lapply(names(models.list), function(y){
+    
+      i_task.df<-lapply(models.list[[y]], function(task){
+        message(c,'_', y, '_',task)
+      
+        #For each chromosome, import perturbations
+        perturbs_for_motifA.df<-readr::read_tsv(paste0('tsv/genomic/motifs/genomic_perturbs_xiong_whole_window_', y, '_', c, '.tsv.gz'))
+
+        #Find the different knockout pairwise situations and collect across pairs
+        i.df<- chr.df %>%
+          as.data.frame() %>%
+          #Get WT data
+          dplyr::left_join(., perturbs_for_motifA.df %>% 
+                             dplyr::filter(mut=='Reference') %>% 
+                             dplyr::rename(bind_hAB_pc = paste0(task, '/pc'), bind_hAB_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, bind_hAB_pc, bind_hAB_sum), 
+                           by = 'region_id') %>%
+          #Get dA (hB) data (when motifA is mutated)
+          dplyr::left_join(., perturbs_for_motifA.df %>%
+                             dplyr::filter(mut %in% unique(pair.df$pattern_name_unique.x)) %>%
+                             dplyr::rename(`pattern_name_unique.x` = mut, bind_hB_pc = paste0(task, '/pc'), bind_hB_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, `pattern_name_unique.x`, bind_hB_pc, bind_hB_sum), 
+                           by = c('region_id', 'pattern_name_unique.x')) %>%
+          #Get dB (hA) perturbations (when motifB is mutated)
+          dplyr::left_join(., perturbs_for_motifA.df %>%
+                             dplyr::filter(mut %in% unique(pair.df$pattern_name_unique.y)) %>%
+                             dplyr::rename(`pattern_name_unique.y` = mut, bind_hA_pc = paste0(task, '/pc'), bind_hA_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, `pattern_name_unique.y`, bind_hA_pc, bind_hA_sum), 
+                           by = c('region_id', 'pattern_name_unique.y')) %>%  
+          #Get dAB (null) perturbations (when both motifA and motifB are mutated)
+          dplyr::left_join(., rbind(perturbs_for_motifA.df %>%
+                                      dplyr::filter(mut %in% c(pair_names_all)) %>%
+                                      tidyr::separate(col = mut, into = c('motifA', 'motifB'), sep = '_') %>%
+                                      dplyr::mutate(mut = paste0(motifA, '_', motifB)),
+                                    perturbs_for_motifA.df %>%
+                                      dplyr::filter(mut %in% c(pair_names_all)) %>%
+                                      tidyr::separate(col = mut, into = c('motifA', 'motifB'), sep = '_') %>%
+                                      dplyr::mutate(mut = paste0(motifB, '_', motifA))) %>%
+                             dplyr::rename(pair_name_unique = mut, bind_null_pc = paste0(task, '/pc'), bind_null_sum = paste0(task, '/pred_sum')) %>%
+                             dplyr::select(region_id, pair_name_unique, bind_null_pc, bind_null_sum), 
+                           by = c('region_id', 'pair_name_unique')) 
+        i_formatted.df<-i.df %>% 
+          dplyr::select(bind_hAB_pc, bind_hAB_sum, bind_hB_pc, bind_hB_sum, bind_hA_pc, bind_hA_sum, bind_null_pc, bind_null_sum)
+        colnames(i_formatted.df)<-paste0(y, '/', task, '/', rep(c('hAB', 'hB','hA','null'), 1, each = 2), '/', rep(c('pc', 'pred_sum'), 4))
+        return(i_formatted.df)
+      }) %>% dplyr::bind_cols(.)
+      return(i_task.df)
+    }) %>% dplyr::bind_cols(.) %>% cbind(chr.df, .)
+  }) %>% rbindlist(.)
+}, mc.cores = 6) %>% rbindlist()
+
+readr::write_tsv(pairs_w_all_perturbs.df, 'tsv/genomic/all_xiong_pairs_curated_0based_w_perturb.tsv.gz')
+```
+
+# Conclusions
+
+In conclusion, we have collected single-perturbations of perturbed motifs, collected paired perturbations of motifs. 
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

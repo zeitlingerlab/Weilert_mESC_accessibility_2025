@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_R1_sox2_nexus_16	75220147	58994200	2363262	17353341	NA	NA	17.7	0.5260602874971527

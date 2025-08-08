@@ -1,0 +1,2478 @@
+---
+title: 'Assess impacts of motifs across changing concentrations'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+Assess impacts of motifs across ATAC-seq collected over changing concentrations of Oct4 (Xiong et al (2022)).
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/16_concentration"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+library(DESeq2)
+
+#Pre-existing variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+regions.path<-'bed/mapped_motifs/all_xiong_islands_curated_0based_sized_to_output.bed'
+motifs.path<-'tsv/mapped_motifs/all_xiong_instances_curated_0based_w_perturb.tsv.gz'
+supplementary_motifs.path<-'modiscolite/atac_wt_fold1_atac_counts/hits.tsv'
+
+motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Oct4' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4')
+motif_to_task.df<-data.frame(task = motif_to_task.list %>% unlist, motif = names(motif_to_task.list))
+
+models_of_interest<-c('atac_0h', 'atac_3h', 'atac_6h', 'atac_9h', 'atac_12h', 'atac_15h')
+models.list<-list(atac_0h = c('atac'),
+                  atac_3h = c('atac'),
+                  atac_6h = c('atac'),
+                  atac_9h = c('atac'),
+                  atac_12h = c('atac'),
+                  atac_15h = c('atac'))
+
+os_patterns.list<-list(
+  `Oct4-Sox2` = list(
+    atac_0h = c('pattern_2'),
+    atac_3h = c('pattern_3', 'pattern_10', 'pattern_15'),
+    atac_6h = c('pattern_3', 'pattern_8', 'pattern_15'),
+    atac_9h = c('pattern_11'),
+    atac_12h = c('pattern_20'),
+    atac_15h = c(NA)
+  ),
+  Sox2 = list(
+    atac_0h = c('pattern_1'),
+    atac_3h = c('pattern_2', 'pattern_4'),
+    atac_6h = c('pattern_1'),
+    atac_9h = c('pattern_0'),
+    atac_12h = c('pattern_1', 'pattern_2'),
+    atac_15h = c('pattern_1', 'pattern_3')
+  )
+)
+
+os_orientation.list<-list(
+  `Oct4-Sox2` = list(
+    atac_0h = c('-'),
+    atac_3h = c('-'),
+    atac_6h = c('+'),
+    atac_9h = c('-'),
+    atac_12h = c('-'),
+    atac_15h = c(NA)
+  ),
+  Sox2 = list(
+    atac_0h = c('+'),
+    atac_3h = c('+'),
+    atac_6h = c('+'),
+    atac_9h = c('+'),
+    atac_12h = c('+'),
+    atac_15h = c('+')
+  )
+)
+
+distance_class_breaks<-c(0, 70, 180, 500, 1000)
+distance_class_labels<-c('protein-range', 'nucleosome-range', 'enhancer-range', 'long-range')
+marginalized_affinities.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/all_xiong_marginalizations.tsv.gz')
+count_threshold<-20
+
+acc_motif_to_task.list<-list('Oct4-Sox2' = 'atac', 'Sox2' = 'atac', 'Klf4' = 'atac', 'Ctcf' = 'atac')
+acc_motif_to_task.df<-data.frame(key_task = acc_motif_to_task.list %>% unlist, raw_motifA = names(acc_motif_to_task.list))
+```
+
+# Mark concentrations
+
+```{r}
+treatments<-paste0(seq(0, 15, 3), 'h')
+conc.df<-data.frame(treatment = treatments, 
+                    Oct4 = c(1, .875, .505, .17, .07, .025),
+                    Sox2 = c(1, 1.268, 1.126, .324, .164, .017)) %>%
+    dplyr::mutate(treatment_numeric = gsub('h', '', treatment) %>% as.numeric(),
+                  Sox2_alpha_norm = Sox2/max(Sox2))
+```
+
+# Import motifs, perturbation scores, and marginalization scores
+
+Import motifs and interpretation scores. 
+
+## Read in `0h` motifs and curate
+
+```{r}
+motifs.gr<-readr::read_tsv(motifs.path) %>% 
+  dplyr::group_by(motif) %>%
+  dplyr::mutate(seq_match_quantile = ecdf(seq_match)(seq_match),
+                seq_match_quantile_bin = cut(seq_match_quantile, breaks = c(0, .33, .67, 1), include.lowest = T, labels = paste0('smq_', 1:3)),
+                region_id = as.integer(region_id)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, 
+                                                                     seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', 
+                                                                     strand.field = 'strand')
+```
+
+## Read in islands and format
+
+```{r}
+#Read in islands
+regions.gr<-rtracklayer::import(regions.path) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::mutate(atac_obs = regionSums(., 'bw/GSE174774_mesc_atac_0h_cutsites_combined.bw'),
+                    atac_obs_q = ecdf(atac_obs)(atac_obs),
+                    atac_obs_q_bin = plyr::round_any(atac_obs_q, accuracy = .2, f = ceiling),
+                    region_id = as.integer(name),
+                    island_seq = getSeq(bsgenome, GRanges(seqnames, IRanges(start, end)), as.character = T),
+                    C = stringr::str_count(island_seq, 'C'),
+                    G = stringr::str_count(island_seq, 'G'),
+                    CpG = stringr::str_count(island_seq, 'CG'),
+                    CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / width), 2))
+
+```
+
+## Process supplemental motifs
+
+Add in Ctcf motifs for a control comparison:
+
+```{r}
+ctcf_motifs.gr<-readr::read_tsv(supplementary_motifs.path) %>% 
+  dplyr::filter(pattern_name == 'pattern_4', metacluster_name == 'pos_patterns') %>%
+  dplyr::mutate(motif='Ctcf') %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T)
+
+motifs.gr<-c(motifs.gr, ctcf_motifs.gr)
+```
+
+Collect supplementary motifs that contained TF-MoDISco seqlets >200 or were of high-confidence identity. We will use these to delineate "grouped" and "isolated" classifications of Oct4-Sox2 or Sox2. 
+
+```{r}
+# other_motifs_all.gr<-readr::read_tsv(supplementary_motifs.path) %>% 
+#   dplyr::filter(pattern_name %in% paste0('pattern_', c(3, 4, 6, 7, 8, 10, 11, 12, 13, 14)), metacluster_name == 'pos_patterns') %>%
+#   # dplyr::mutate(motif='Ctcf') %>%
+#   makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+#   plyranges::mutate(motif = short_name) %>% 
+#   plyranges::filter(!overlapsAny(., motifs.gr, ignore.strand = T))
+# 
+# ov<-findOverlaps(other_motifs_all.gr, regions.gr, ignore.strand = T)
+# other_motifs.gr<-other_motifs_all.gr[ov@from]
+# other_motifs.gr$region_id<-regions.gr$region_id[ov@to]
+# 
+# other_motifs_filt.gr<-lapply(other_motifs.gr$pattern_name %>% unique, function(x){
+#   motifs_dedup.gr<-remove_palindromic_motifs_from_bpnet_instances(other_motifs.gr,
+#                                                                 pattern_to_filter = x, 
+#                                                                 chrom_name = 'seqnames', 
+#                                                                 start_name = 'start', 
+#                                                                 end_name = 'end', 
+#                                                                 value_name = 'contrib_match', 
+#                                                                 motif_name = 'pattern_name',
+#                                                                 region_name = 'region_id')
+#   return(motifs_dedup.gr)
+# }) %>% as('GRangesList') %>% unlist()
+```
+
+## Find expanded islands
+
+Find expanded islands that consider all contributing motifs to accessibility.
+
+```{r}
+island_classes.df<-motifs.gr %>% plyranges::filter(motif!='Ctcf') %>% #c(motifs.gr, other_motifs.gr) %>% #Include other motifs
+  GenomicRanges::sort(ignore.strand = T) %>%
+  as.data.frame %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::summarize(island_content = paste(unique(sort(motif)), table(sort(motif)), sep = ':', collapse = '_'),
+                   island_content_ordered = paste(motif, collapse = '_'),
+                   island_content_unique = paste(unique(sort(motif)), collapse = '_'),
+                   island_count = length(motif))
+
+regions.gr<-regions.gr %>% as.data.frame %>% dplyr::left_join(., island_classes.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+motifs.gr<-motifs.gr %>% as.data.frame %>% dplyr::left_join(., island_classes.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+
+#Reduce islands in order to accommodate enhancers that are grouped together.
+reduced_regions.gr<-regions.gr %>% GenomicRanges::reduce(ignore.strand = T)
+ov<-findOverlaps(regions.gr, reduced_regions.gr, ignore.strand = T)
+regions.gr$reduced_region_id<-ov@to
+```
+
+# Collect data
+
+# Define predicted .bw files
+
+```{r}
+pred.bw.list<-list(`0h` = 'preds/atac_0h_fold1_atac_atac_peaks_all.bw',
+                   `3h` = 'preds/atac_3h_fold1_atac_atac_peaks_all.bw',
+                   `6h` = 'preds/atac_6h_fold1_atac_atac_peaks_all.bw',
+                   `9h` = 'preds/atac_9h_fold1_atac_atac_peaks_all.bw',
+                   `12h` = 'preds/atac_12h_fold1_atac_atac_peaks_all.bw',
+                   `15h` = 'preds/atac_15h_fold1_atac_atac_peaks_all.bw')
+
+shap.bw.list<-list(`0h` = 'shap/atac_0h_fold1_atac_counts.bw',
+                   `3h` = 'shap/atac_3h_fold1_atac_counts.bw',
+                   `6h` = 'shap/atac_6h_fold1_atac_counts.bw',
+                   `9h` = 'shap/atac_9h_fold1_atac_counts.bw',
+                   `12h` = 'shap/atac_12h_fold1_atac_counts.bw',
+                   `15h` = 'shap/atac_15h_fold1_atac_counts.bw')
+
+norm.atac.bw.list<-list(`0h` = 'bw/GSE174774_mesc_atac_0h_combined_normalized.bw',
+                        `3h` = 'bw/GSE174774_mesc_atac_3h_combined_normalized.bw',
+                        `6h` = 'bw/GSE174774_mesc_atac_6h_combined_normalized.bw',
+                        `9h` = 'bw/GSE174774_mesc_atac_9h_combined_normalized.bw',
+                        `12h` = 'bw/GSE174774_mesc_atac_12h_combined_normalized.bw',
+                        `15h` = 'bw/GSE174774_mesc_atac_15h_combined_normalized.bw')
+```
+
+## Collect SHAP scores across motifs
+
+```{r}
+shap.df<-mclapply(names(shap.bw.list), function(x){
+  regionSums(motifs.gr, shap.bw.list[[x]])
+}, mc.cores = 2) %>% as.data.frame()
+names(shap.df)<-names(shap.bw.list)
+motifs.df<-cbind(motifs.gr %>% as.data.frame, shap.df)
+```
+
+## Collect normalized accessibility across regions
+
+```{r}
+norm.atac.df<-mclapply(names(norm.atac.bw.list), function(x){
+  regionSums(regions.gr, 
+             norm.atac.bw.list[[x]])
+}, mc.cores = 2) %>% as.data.frame()
+names(norm.atac.df)<-names(norm.atac.bw.list)
+regions_w_atac.df<-cbind(regions.gr %>% as.data.frame, norm.atac.df)
+```
+
+## Collect predicted accessibility across regions
+
+```{r}
+pred.atac.df<-mclapply(names(pred.bw.list), function(x){
+  regionSums(regions.gr, 
+             pred.bw.list[[x]])
+}, mc.cores = 2) %>% as.data.frame()
+names(pred.atac.df)<-names(pred.bw.list)
+regions_w_pred_atac.df<-cbind(regions.gr %>% as.data.frame, pred.atac.df)
+```
+
+## Collect marginalization scores
+
+```{r}
+marg_all.df<-lapply(models_of_interest, function(x){
+  new_col<-paste0('marg_', x)
+  
+  marg.df<-Sys.glob(paste0('tsv/insilico/marginalizations/motifs/xiong_marginalizations_*', x, '*.tsv.gz')) %>% readr::read_tsv() 
+  null_val<-marg.df %>% dplyr::filter(state=='null') %>% .$atac
+  print(null_val)
+  marg.df[[new_col]]<-marg.df$atac - null_val
+  
+  return(marg.df[[new_col]])
+}) %>% as.data.frame()
+colnames(marg_all.df)<-paste0('marg_', seq(0, 15, 3), 'h')
+
+marg_all.df<-cbind(Sys.glob(paste0('tsv/insilico/marginalizations/motifs/xiong_marginalizations_atac_0h.tsv.gz')) %>% readr::read_tsv() %>% dplyr::rename(seq = seqA) %>% dplyr::select(seq), marg_all.df)
+motifs_w_marg.df<-motifs.df %>% dplyr::left_join(marg_all.df)
+```
+
+# Systematically test interpretations across time course
+
+Given contribution scores, isolation scores, context scores, and cooperativity scores (context-isolation), check how they change over Oct4 concentration depletion time course. 
+
+```{r}
+motifs_w_perturb.df<-motifs_w_marg.df %>%
+  dplyr::rename(`contrib_0h` = `0h`, `contrib_3h` = `3h`, `contrib_6h` = `6h`, `contrib_9h` = `9h`, `contrib_12h` = `12h`, `contrib_15h` = `15h`) %>%
+  dplyr::mutate(`perturb_0h` = log(`atac_0h.atac.WT.pred_sum`/`atac_0h.atac.dA.pred_sum`),
+                `perturb_3h` = log(`atac_3h.atac.WT.pred_sum`/`atac_3h.atac.dA.pred_sum`),
+                `perturb_6h` = log(`atac_6h.atac.WT.pred_sum`/`atac_6h.atac.dA.pred_sum`),
+                `perturb_9h` = log(`atac_9h.atac.WT.pred_sum`/`atac_9h.atac.dA.pred_sum`),
+                `perturb_12h` = log(`atac_12h.atac.WT.pred_sum`/`atac_12h.atac.dA.pred_sum`),
+                `perturb_15h` = log(`atac_15h.atac.WT.pred_sum`/`atac_15h.atac.dA.pred_sum`),
+                `coopscore_0h` = perturb_0h - marg_0h,
+                `coopscore_3h` = perturb_3h - marg_3h,
+                `coopscore_6h` = perturb_6h - marg_6h,
+                `coopscore_9h` = perturb_9h - marg_9h,
+                `coopscore_12h` = perturb_12h - marg_12h,
+                `coopscore_15h` = perturb_15h - marg_15h)
+```
+
+Summarize motifs based on their interpretation scores for plotting.
+
+```{r}
+motifs_by_interp_ungrouped.df<- motifs_w_perturb.df %>%
+  dplyr::select(motif, seq_match_quantile_bin, island_count, island_content,
+                contrib_0h, contrib_3h, contrib_6h, contrib_9h, contrib_12h, contrib_15h,
+                marg_0h, marg_3h, marg_6h, marg_9h, marg_12h, marg_15h,
+                perturb_0h, perturb_3h, perturb_6h, perturb_9h, perturb_12h, perturb_15h,
+                coopscore_0h, coopscore_3h, coopscore_6h, coopscore_9h, coopscore_12h, coopscore_15h) %>%
+  tidyr::pivot_longer(cols = c(-motif, -seq_match_quantile_bin, -island_count, -island_content), names_to = 'interpretation', values_to = 'value') %>%
+  tidyr::separate(col = 'interpretation', into = c('interp_type', 'timepoint'), sep = '_') %>%
+  dplyr::mutate(timepoint_num = gsub('h', '', timepoint) %>% as.integer())
+
+#Mark whether they're grouped or not.
+motifs_by_interp.df<-lapply(c('Sox2','Oct4-Sox2'), function(x){
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-motifs_by_interp_ungrouped.df %>% dplyr::filter(motif==x) %>% 
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-motifs_by_interp_ungrouped.df %>% dplyr::filter(motif==x) %>% 
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  return(grouped.df)
+  
+}) %>% rbindlist()
+
+```
+
+Summarize by PWM quantile to see the relative effects over time.
+
+```{r}
+motifs_by_interp_summary.df<-motifs_by_interp.df %>% 
+    dplyr::group_by(motif, seq_match_quantile_bin, interp_type, timepoint_num, timepoint, island_state) %>%
+    dplyr::summarize(med_val = median(value, na.rm = T)) %>%
+    dplyr::mutate(interp_type = factor(interp_type, levels = c('contrib','perturb','marg','coopscore'), labels = c('SHAP', 'Context','Isolation','Coop (Context - isolation)')))
+
+abs_interp.plot<-ggplot(motifs_by_interp_summary.df, aes(x = timepoint_num, y = med_val, color = seq_match_quantile_bin, linetype = island_state))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_point() + geom_line()+
+  facet_grid(interp_type ~ motif, scales = 'free') + 
+  scale_y_continuous(name = 'Median interpretation value (log-scale)')+
+  ggtitle('Absolute loss of interpretation values over time course')+
+  theme_classic()+ theme(panel.border = element_rect(fill = NA))
+abs_interp.plot
+ggsave(paste0(figure_filepath, '/time_course_absolute_loss_of_interp_values.png'), abs_interp.plot, height = 11, width = 8)
+ggsave(paste0(figure_filepath, '/time_course_absolute_loss_of_interp_values.pdf'), abs_interp.plot, height = 11, width = 8)
+```
+
+Reimpose given relative loss with reference loss at 0h.
+
+```{r}
+motifs_by_interp_summary_relative.df<-motifs_by_interp_summary.df %>%
+  dplyr::ungroup() %>%
+  dplyr::left_join(motifs_by_interp_summary.df %>% dplyr::ungroup() %>% 
+                     dplyr::filter(timepoint_num == 0, seq_match_quantile_bin=='smq_3') %>% 
+                     dplyr::select(-timepoint_num, -timepoint, -seq_match_quantile_bin) %>%
+                     dplyr::rename(med_null_val = med_val)) %>%
+  dplyr::mutate(med_relative_value = med_val / med_null_val)
+
+rel_interp_0h_q5.plot<-ggplot(motifs_by_interp_summary_relative.df, aes(x = timepoint_num, y = med_relative_value, color = seq_match_quantile_bin, linetype = island_state))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_point() + geom_line()+
+  facet_grid(interp_type ~ motif, scales = 'free') + 
+  scale_y_continuous(name = 'Median interpretation value (log-scale)')+
+  ggtitle('Relative loss of interpretation values over time course\nAnchored on 0h, q5')+
+  theme_classic()+ theme(panel.border = element_rect(fill = NA))
+
+motifs_by_interp_summary_relative.df<-motifs_by_interp_summary.df %>%
+  dplyr::ungroup() %>%
+  dplyr::left_join(motifs_by_interp_summary.df %>% dplyr::ungroup() %>% 
+                     dplyr::filter(timepoint_num == 0) %>% 
+                     dplyr::select(-timepoint_num, -timepoint) %>%
+                     dplyr::rename(med_null_val = med_val)) %>%
+  dplyr::mutate(med_relative_value = med_val / med_null_val)
+
+rel_interp_0h.plot<-ggplot(motifs_by_interp_summary_relative.df, aes(x = timepoint_num, y = med_relative_value, color = seq_match_quantile_bin, linetype = island_state))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_point() + geom_line()+
+  facet_grid(interp_type ~ motif, scales = 'free') + 
+  scale_y_continuous(name = 'Median interpretation value (log-scale)')+
+  ggtitle('Relative loss of interpretation values over time course\nAnchored on 0h only')+
+  theme_classic()+ theme(panel.border = element_rect(fill = NA))
+
+
+rel_interp.plot<-rel_interp_0h_q5.plot + rel_interp_0h.plot
+rel_interp.plot
+
+ggsave(paste0(figure_filepath, '/time_course_relative_loss_of_interp_values.png'), rel_interp.plot, height = 11, width = 16)
+ggsave(paste0(figure_filepath, '/time_course_relative_loss_of_interp_values.pdf'), rel_interp.plot, height = 11, width = 16)
+```
+
+Reimpose given slope of changes from transitions.
+
+```{r}
+motifs_by_interp_summary_slope.df<-motifs_by_interp_summary.df %>%
+  dplyr::group_by(motif, seq_match_quantile_bin, interp_type, island_state) %>%
+  dplyr::arrange(motif, seq_match_quantile_bin, interp_type, timepoint_num) %>%
+  dplyr::mutate(med_val_diff = c(NA, diff(med_val))) %>%
+  dplyr::filter(!is.na(med_val_diff))
+
+slope_interp.plot<-ggplot(motifs_by_interp_summary_slope.df, aes(x = timepoint_num, y = med_val_diff, color = seq_match_quantile_bin, linetype = island_state))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_point() + geom_line()+
+  facet_grid(interp_type ~ motif, scales = 'free') + 
+  scale_y_continuous(name = 'Median interpretation value (log-scale)')+
+  scale_x_continuous(name = 'Transition INTO timepoint\n(i.e. 3 = 0h -> 3h')+
+  ggtitle('Slope of interpretation values over time course')+
+  theme_classic()+ theme(panel.border = element_rect(fill = NA))
+slope_interp.plot
+ggsave(paste0(figure_filepath, '/time_course_slope_loss_of_interp_values.png'), slope_interp.plot, height = 11, width = 8)
+ggsave(paste0(figure_filepath, '/time_course_slope_loss_of_interp_values.pdf'), slope_interp.plot, height = 11, width = 8)
+```
+
+# Run DESeq2
+
+## Collect DESeq2 normalized accessibility across regions
+
+```{r}
+#Collect data
+atac.bw.vec<-Sys.glob('../1_processing/bw/GSE174774_mesc_atac_*_*_cutsites.bw')
+atac.df<-mclapply(atac.bw.vec, function(x){
+  regionSums(regions.gr, 
+             x)
+}, mc.cores = 2) %>% as.data.frame()
+
+#Format organization
+atac_labels.df<-data.frame(filename = atac.bw.vec) %>%
+  dplyr::mutate(state = basename(filename) %>% gsub('GSE174774_mesc_atac_', '', .) %>% gsub('_cutsites.bw', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+
+names(atac.df)<-atac_labels.df$state
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = atac.df,
+                              colData = atac_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_atac.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "0h"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_atac.df)<-paste0('deseq_', seq(3, 15, 3), 'h_vs_0h')
+head(log2FoldChange_atac.df)
+
+#Return whether the region is significantly up- or down-regulated
+padj_atac.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "0h"))
+  res$padj
+}) %>% as.data.frame()
+colnames(padj_atac.df)<-paste0('padj_', seq(3, 15, 3), 'h_vs_0h')
+head(padj_atac.df)
+
+regions_w_deseq.df<-cbind(regions.gr %>% as.data.frame, log2FoldChange_atac.df, padj_atac.df)
+```
+
+## Collect DESeq2 normalized transcription across enhancers
+
+```{r}
+#Collect data
+erna.bw.vec<-Sys.glob('../1_processing/bw/GSE174774_mesc_ttseq_*_*.bw')
+erna.df<-mclapply(erna.bw.vec, function(x){
+  regionSums(regions.gr,
+             x)
+}, mc.cores = 2) %>% as.data.frame()
+
+#Format organization
+erna_labels.df<-data.frame(filename = erna.bw.vec) %>%
+  dplyr::mutate(state = basename(filename) %>% gsub('GSE174774_mesc_ttseq_', '', .) %>% gsub('.bw', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+names(erna.df)<-erna_labels.df$state
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = erna.df,
+                              colData = erna_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_erna.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "0h"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_erna.df)<-paste0('ttseq_', seq(3, 15, 3), 'h_vs_0h')
+
+#Return whether the region is significantly up- or down-regulated
+padj_erna.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "0h"))
+  res$padj
+}) %>% as.data.frame()
+colnames(padj_erna.df)<-paste0('ttseq_padj_', seq(3, 15, 3), 'h_vs_0h')
+head(padj_erna.df)
+
+regions_w_deseq_both.df<-cbind(regions_w_deseq.df %>% as.data.frame, log2FoldChange_erna.df, padj_erna.df)
+readr::write_tsv(regions_w_deseq_both.df, 'tsv/mapped_motifs/all_islands_curated_1based_w_deseq2_data.tsv.gz')
+```
+
+## Collect DESeq2 normalized transcription across genes
+
+Given published TT-seq data from Xiong et al (2022), assess pairwise differential expression across annotated regions. 
+
+```{r}
+#Collect data
+ttseq.counts.path<-Sys.glob('../1_processing/bam/GSE174774_mesc_ttseq_*ReadsPerGene.out.tab')
+ttseq_conditions.vec<-ttseq.counts.path %>% basename %>% gsub('GSE174774_mesc_ttseq_', '', .) %>% gsub('ReadsPerGene.out.tab', '', .)
+ttseq_annotations.gr<-rtracklayer::import('../../public/databases/Ens/mm10.Ens_98.gtf')
+
+#Import counts tables
+ttseq_names.vec<-readr::read_tsv(ttseq.counts.path[1], F) %>% .[[1]]
+ttseq.df<-mclapply(ttseq.counts.path, function(x){
+  df<-readr::read_tsv(x, F)
+  colnames(df)<-c('gene_name','reads','fwd','rev')
+  df$reads
+}, mc.cores = 2) %>% as.data.frame()
+colnames(ttseq.df)<-ttseq_conditions.vec
+ttseq.df$gene_id<-ttseq_names.vec
+ttseq.df<-ttseq.df %>% dplyr::filter(!grepl('N_', gene_id))
+
+#Filter out genes that have no reads across them
+genes_to_keep.vec<-ttseq.df %>% tidyr::pivot_longer(cols = ttseq_conditions.vec, names_to = 'condition', values_to = 'counts') %>%
+  dplyr::group_by(gene_id) %>% dplyr::summarize(total_counts = sum(counts)) %>%
+  dplyr::filter(total_counts>0) %>%
+  .$gene_id %>% unique()
+
+ttseq.df<-ttseq.df %>% dplyr::filter(gene_id %in% genes_to_keep.vec)
+  
+#Attach annotations
+ttseq_w_ann.df<-ttseq.df %>%
+  dplyr::left_join(., ttseq_annotations.gr %>% as.data.frame %>% dplyr::select(gene_id, gene_name, gene_source)) %>%
+  unique()
+testit::assert(nrow(ttseq_w_ann.df)==nrow(ttseq.df))
+
+#Format organization
+ttseq_labels.df<-data.frame(filename = ttseq.counts.path) %>%
+  dplyr::mutate(state = basename(filename) %>% basename %>% gsub('GSE174774_mesc_ttseq_', '', .) %>% gsub('ReadsPerGene.out.tab', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = ttseq.df %>% dplyr::select(-gene_id),
+                              colData = ttseq_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_ttseq.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint", x, "0h"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_ttseq.df)<-paste0('deseq_', seq(3, 15, 3), 'h_vs_0h')
+
+#Return significance results
+signif_ttseq.df<-lapply(paste0(seq(3, 15, 3), 'h'), function(x){
+  res <- results(dds, contrast=c("timepoint", x, "0h"))
+  res$padj
+}) %>% as.data.frame()
+colnames(signif_ttseq.df)<-paste0('signif_', seq(3, 15, 3), 'h_vs_0h')
+```
+
+Connect differential TT-seq values with annotations. Then connect gene locations with the nearest motif groups.
+
+```{r}
+ttseq_w_deseq.df<-cbind(ttseq_w_ann.df, log2FoldChange_ttseq.df) %>%
+  dplyr::left_join(., ttseq_annotations.gr %>% as.data.frame %>% dplyr::filter(type=='gene') %>% dplyr::select(gene_id, gene_name, gene_source, seqnames, start, end, strand))
+readr::write_tsv(ttseq_w_deseq.df, 'tsv/mapped_motifs/all_genes_curated_1based_w_deseq2_data.tsv.gz')
+
+#Collect significance
+ttseq_w_signif.df<-cbind(ttseq_w_ann.df, signif_ttseq.df, log2FoldChange_ttseq.df) %>%
+  dplyr::left_join(., ttseq_annotations.gr %>% as.data.frame %>% dplyr::filter(type=='gene') %>% dplyr::select(gene_id, gene_name, gene_source, seqnames, start, end, strand))
+```
+
+## Read in differential data
+
+```{r}
+ttseq_w_deseq.df<-readr::read_tsv('tsv/mapped_motifs/all_genes_curated_1based_w_deseq2_data.tsv.gz')
+regions_w_deseq_both.df<-readr::read_tsv('tsv/mapped_motifs/all_islands_curated_1based_w_deseq2_data.tsv.gz')
+```
+
+# Correlate SHAP with change in region
+
+Calculate change in contribution with change in accessibility.
+
+```{r}
+contrib_vs_acc.vec<-mclapply(1:nrow(shap.df), function(x){
+  cor(shap.df[x,] %>% as.numeric(), norm.atac.df[motifs.df[x,]$region_id,] %>% as.numeric())
+}, mc.cores = 8) %>% unlist()
+motifs.df$cor_contrib_vs_acc<-contrib_vs_acc.vec
+```
+
+# Plot SHAP scores of different concentrations across mapped motifs
+
+```{r}
+cwms.plot.list<-lapply(names(acc_motif_to_task.list), function(x){
+  message(x)
+  logos.plot.list<-mclapply(names(shap.bw.list), function(y){
+    message(y)
+      gr<-motifs.gr %>% plyranges::filter(motif==x)
+      seqs<-gr %>% getSeq(bsgenome, ., as.character = T)
+      contrib.mat<-standard_metapeak_matrix(regions.gr = gr,
+                                            sample.cov = shap.bw.list[[y]],
+                                            keep_region_coordinates = T)
+      seqs_1he.list<-lapply(seqs, function(z) one_hot_encode_DNA(z))
+      contribs.list<-lapply(1:dim(contrib.mat)[1], function(z){
+        seqs_1he.list[[z]] * matrix(rep(contrib.mat[z,], 4), nrow = 4, byrow = T)
+      })
+      cwm<-Reduce("+", contribs.list) / length(contribs.list)
+      
+      cwm.plot<-ggseqlogo(cwm, method = 'custom', seq_type='dna')+
+        scale_x_continuous(name = 'Motif position (bp)')+
+        scale_y_continuous(name = 'Contrib', limits = c(-.005, .025))+
+        ggtitle(paste0(x, '_', y)) + 
+        theme(axis.line.y = element_line(), axis.ticks.y = element_line(),
+              axis.title = element_blank(), axis.text.x = element_blank())
+    return(cwm.plot)
+  }, mc.cores = 2)
+  
+  logos.plot<-wrap_plots(logos.plot.list) + plot_layout(ncol = 1)
+  ggsave(paste0(figure_filepath, '/cwm_across_mapped_', x, '.png'), logos.plot, height = 9, width = 3)
+  ggsave(paste0(figure_filepath, '/cwm_across_mapped_', x, '.pdf'), logos.plot, height = 9, width = 3)
+  
+  return(logos.plot)
+}) 
+
+all_logos.plot<-wrap_plots(cwms.plot.list) + plot_layout(nrow = 1)
+all_logos.plot
+ggsave(paste0(figure_filepath, '/cwm_across_mapped_all.png'), all_logos.plot, height = 11, width = 12)
+ggsave(paste0(figure_filepath, '/cwm_across_mapped_all.pdf'), all_logos.plot, height = 11, width = 12)
+```
+
+# Showcase low-affinity OS enhancer
+
+```{r}
+curated_region_id<-86159
+curated_coords<-c(85539625, 85539700)
+curated_enhancer_boundaries.gr<-GRanges('chr10', IRanges(curated_coords[1], curated_coords[2]))
+```
+
+Generate contribution scores of mapped motifs.
+
+```{r}
+curated_shap.plot<-mclapply(names(shap.bw.list), function(x){
+  df<-data.frame(contrib = standard_metapeak_matrix(regions.gr = curated_enhancer_boundaries.gr, 
+                                                sample.cov = shap.bw.list[[x]], 
+                                                keep_region_coordinates = T) %>% 
+               t()) %>% 
+    dplyr::mutate(contrib_type = x, 
+                  seq = getSeq(bsgenome, curated_enhancer_boundaries.gr, as.character = T) %>% stringr::str_split_1(pattern = ''),
+                  position = start(curated_enhancer_boundaries.gr):end(curated_enhancer_boundaries.gr))
+  
+  # Generate sequence logo
+  acc_contrib.plot<-df%>%
+    tidyr::pivot_wider(names_from = seq, values_from = contrib) %>% 
+    dplyr::select(A, C, G, T) %>% as.matrix() %>% t() %>%
+    ggseqlogo(., method='custom', seq_type='dna') + 
+    scale_y_continuous(name = 'Acc. contribution.', limits = c(-0.02, 0.08))+
+    scale_x_discrete(name = 'Genomic position (chr10, bp)')+
+    ggtitle(x)
+  return(acc_contrib.plot)
+}, mc.cores = 2) %>% wrap_plots(ncol = 1)
+
+curated_shap.plot
+ggsave(paste0(figure_filepath, '/OSlowaff_candidate_contrib.png'), curated_shap.plot, height = 6, width = 4)
+ggsave(paste0(figure_filepath, '/OSlowaff_candidate_contrib.pdf'), curated_shap.plot, height = 6, width = 4)
+```
+
+For this subset, show perturbation effects as well.
+
+```{r}
+region_start_0based<-regions.gr %>% as.data.frame %>% dplyr::filter(region_id == curated_region_id) %>% .$start
+perturbs.df<-motifs.df %>% dplyr::filter(region_id == curated_region_id)
+```
+
+# Plot metaplots across different concentrations
+
+## Motif frequencies and mappings
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+  message(x)
+  
+  #Import motifs
+  motif.df<-motifs_w_perturb.df %>% dplyr::filter(motif==x) %>%
+    dplyr::arrange(`perturb_0h`) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  #Plot motif sequences
+  seq.plot<-plot_sequence(motif.df %>% .$seq, window = 17, title = x, genome = bsgenome, show = F)
+  
+  #Format marginalization scores
+  marg.df<-motif.df %>% 
+    dplyr::select(paste0('marg_', names(shap.bw.list)), seq, motif, seq_match_quantile, row) %>%
+    tidyr::pivot_longer(cols = paste0('marg_', names(shap.bw.list)), names_to = 'timepoint', values_to = 'marg') %>%
+    dplyr::mutate(timepoint = timepoint %>% gsub('marg_', '', .) %>% factor(., levels = names(shap.bw.list)))
+  
+  #Plot marginalizations across motifs
+  marg.plot<-ggplot(marg.df, aes(x = timepoint, y = row, fill = marg))+
+    ggrastr::geom_tile_rast()+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Marg. score')+
+    #limits = c(min(perturb.df$perturb), max(perturb.df$perturb)))+
+    ggtitle(x)+
+    theme_classic()
+  
+  #Format perturbation scores (with marginalization scores)
+  perturb.df<-motif.df %>% 
+    dplyr::select(paste0('perturb_', names(shap.bw.list)), seq, motif, seq_match_quantile, row) %>%
+    tidyr::pivot_longer(cols = paste0('perturb_', names(shap.bw.list)), names_to = 'timepoint', values_to = 'perturb') %>%
+    dplyr::mutate(timepoint = timepoint %>% gsub('perturb_', '', .) %>% factor(., levels = names(shap.bw.list)))
+  
+  #Plot perturbation scores
+  perturb.plot<-ggplot(perturb.df, aes(x = timepoint, y = row, fill = perturb))+
+    ggrastr::geom_tile_rast()+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Perturb score',
+                         limits = c(min(perturb.df$perturb), max(perturb.df$perturb)))+
+    ggtitle(x)+
+    theme_classic()  
+  
+  
+  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
+  #Compare context/isolation based on whether it is grouped or isolated
+    
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    motifs_w_grouped.df<-perturb.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin, atac_obs)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    motifs_w_grouped.df<-perturb.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin, atac_obs)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  } 
+  
+  grouped_medians.df<-motifs_w_grouped.df %>% as.data.frame %>%
+    
+    #Remove all poor accessibility regions because we want to consider only open features. 
+    #This cutoff was determined from absolute observed accessibility effects in later plots. See similar results despite changing cutoffs. 
+    dplyr::filter(atac_obs_q_bin>=.6) %>% 
+    dplyr::left_join(marg.df) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_perturb = median(perturb),
+                     med_marg = median(marg),
+                     med_max = max(med_perturb, med_marg),
+                     med_affinity = median(seq_match_quantile)) %>%
+    dplyr::mutate(timepoint_numeric = timepoint %>% gsub('h', '', .) %>% as.integer(),
+                  timepoint = factor(timepoint, levels = paste0(seq(0, 15, 3), 'h')))
+
+  all_categories_bar.plot<-ggplot(grouped_medians.df)+
+    geom_bar(aes(x = seq_match_quantile_bin, y = med_perturb, fill = timepoint), alpha = .5, stat = 'identity', position = 'dodge')+
+    geom_bar(aes(x = seq_match_quantile_bin, y = med_marg, fill = timepoint), alpha = 1, color = 'black', linewidth = 1, stat = 'identity', position = 'dodge')+
+    facet_grid(island_state ~ .)+
+    scale_y_continuous(name = 'Context and isolation scores over group medians')+
+    scale_x_discrete(name = 'Motif PWM group')+
+    ggtitle('Context and isolation scores overlaid\nContext scores: transparent box\nIsolation scores:box with black outline')+
+    theme_classic()
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_context_and_isolation_scores.png'), all_categories_bar.plot, height = 10, width = 8)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_context_and_isolation_scores.pdf'), all_categories_bar.plot, height = 10, width = 8)
+  
+  all_categories_line.plot<-ggplot(grouped_medians.df)+
+    geom_line(aes(x = timepoint_numeric, y = med_perturb, color = seq_match_quantile_bin, linetype = island_state), color = 'black')+
+    geom_line(aes(x = timepoint_numeric, y = med_marg, color = seq_match_quantile_bin, linetype = island_state), color = 'gray')+
+    facet_grid(. ~ seq_match_quantile_bin)+
+    scale_y_continuous(name = 'Context and isolation scores over group medians')+
+    scale_x_continuous(name = 'Motif PWM group')+
+    scale_linetype_manual(values = c('solid', 'dashed'))+
+    ggtitle('Context and isolation scores overlaid\nContext scores: black\nIsolation scores:gray')+
+    theme_classic()
+  all_categories_line.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_context_and_isolation_scores_line.png'), all_categories_line.plot, height = 6, width = 12)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_context_and_isolation_scores_line.pdf'), all_categories_line.plot, height = 6, width = 12)
+  
+  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
+  #Mark whether its mapped by each motif by context
+  motif.gr<-makeGRangesFromDataFrame(motif.df, keep.extra.columns = T, starts.in.df.are.0based = F,
+                                     seqnames.field = 'seqnames', start.field = 'start',
+                                     strand.field = 'strand', end.field = 'end')
+
+  p.list<-os_patterns.list[[x]]
+  mapped.df<-mclapply(names(p.list), function(y){
+    hits.gr<-readr::read_tsv(paste0('modiscolite/', y, '_fold1_atac_counts/hits.tsv')) %>% 
+      makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+      dplyr::filter(pattern_name %in% p.list[[y]], metacluster_name=='pos_patterns')
+    overlapsAny(motif.gr, hits.gr, ignore.strand = T)
+  }, mc.cores = 2) %>% as.data.frame()
+  colnames(mapped.df)<-names(p.list)
+  mapped.df$row<-motif.gr$row
+  
+  mapped_by_contrib.plot<-mapped.df %>%
+    tidyr::pivot_longer(names_to = 'timepoint', values_to = 'overlap', cols = names(p.list)) %>% 
+    dplyr::mutate(timepoint = factor(timepoint, levels = names(p.list))) %>% 
+    ggplot(., aes(x = timepoint, y = row, fill = overlap))+
+    ggrastr::geom_tile_rast()+
+    scale_fill_manual(values = c('white', 'black'), expand = c(0,0))+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    ggtitle(x, subtitle = 'Context ordered')+
+    theme_classic()
+  
+  seq_match_quantile_by_contrib.plot<-ggplot(motif.df, aes(x = 1, y = row, fill = seq_match_quantile))+
+    ggrastr::geom_tile_rast()+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    ggtitle(x, subtitle = 'Context ordered')+
+    scale_fill_gradient(high = '#810f7c', low = 'white', name = 'seq_match_quantile')
+  
+  
+  #Mark whether its mapped by each motif by isolation
+  motif.gr<-makeGRangesFromDataFrame(motif.df, keep.extra.columns = T, starts.in.df.are.0based = F,
+                                     seqnames.field = 'seqnames', start.field = 'start',
+                                     strand.field = 'strand', end.field = 'end') %>%
+    plyranges::arrange(`marg_0h`) %>%
+    plyranges::mutate(row = 1:length(.))
+  
+  p.list<-os_patterns.list[[x]]
+  mapped.df<-mclapply(names(p.list), function(y){
+    hits.gr<-readr::read_tsv(paste0('modiscolite/', y, '_fold1_atac_counts/hits.tsv')) %>% 
+      makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+      dplyr::filter(pattern_name %in% p.list[[y]], metacluster_name=='pos_patterns')
+    overlapsAny(motif.gr, hits.gr, ignore.strand = T)
+  }, mc.cores = 2) %>% as.data.frame()
+  colnames(mapped.df)<-names(p.list)
+  mapped.df$row<-motif.gr$row
+  
+  mapped_by_isolation.plot<-mapped.df %>%
+    tidyr::pivot_longer(names_to = 'timepoint', values_to = 'overlap', cols = names(p.list)) %>% 
+    dplyr::mutate(timepoint = factor(timepoint, levels = names(p.list))) %>% 
+    ggplot(., aes(x = timepoint, y = row, fill = overlap))+
+    ggrastr::geom_tile_rast()+
+    scale_fill_manual(values = c('white', 'black'), expand = c(0,0))+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    ggtitle(x, subtitle = 'Isolation ordered')+
+    theme_classic()
+  
+  seq_match_quantile_by_isolation.plot<-ggplot(motif.gr %>% as.data.frame, aes(x = 1, y = row, fill = seq_match_quantile))+
+    ggrastr::geom_tile_rast()+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    ggtitle(x, subtitle = 'Isolation ordered')+
+    scale_fill_gradient(high = '#810f7c', low = 'white', name = 'seq_match_quantile')
+
+  #Save plots as a summary plot
+  metaplot<-seq_match_quantile_by_contrib.plot + mapped_by_contrib.plot + seq_match_quantile_by_isolation.plot + mapped_by_isolation.plot + plot_layout(nrow = 1)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_mapping_consistency_heatmaps.png'), metaplot, height = 5, width = 16)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_mapping_consistency_heatmaps.pdf'), metaplot, height = 5, width = 16)
+
+  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
+  #Measure effects of accessibility levels from DESeq2
+  atac_comparisons<-colnames(log2FoldChange_atac.df)
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq.df %>% dplyr::select(atac_comparisons, region_id)) %>%
+    dplyr::select(atac_comparisons, row) %>%
+    tidyr::pivot_longer(cols = atac_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_comparisons)))
+  
+  #Plot ALL effects of accessibility levels across motifs
+  obs.plot<-ggplot(obs.df, aes(x = timepoint, y = row, fill = deseq_atac))+ #log(`0h_diff_timepoint`)))+
+    ggrastr::geom_tile_rast()+
+    scale_x_discrete(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0))+
+    scale_fill_gradient2(low = '#810f7c', mid = 'white', high = '#feb24c', midpoint = 0, name = 'log(timepoint/WT)')+
+    ggtitle(x)+
+    theme_classic()
+
+  #Save plots as a summary plot
+  metaplot<-seq.plot$plot + seq_match_quantile_by_contrib.plot + mapped_by_contrib.plot + marg.plot + perturb.plot + obs.plot + plot_layout(nrow =1)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_heatmaps.png'), metaplot, height = 5, width = 20)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_heatmaps.pdf'), metaplot, height = 5, width = 20)
+  
+  # Plot rate of mappings
+  counts.plot<-mapped.df %>% data.table %>% melt.data.table(id.vars = 'row', variable.name = 'timepoint', value.name = 'bool') %>%
+    dplyr::group_by(timepoint) %>% 
+    dplyr::summarize(count = sum(bool)) %>%
+    dplyr::mutate(total_count = nrow(mapped.df),
+                  rate = count / total_count) %>%
+    ggplot(., aes(x = timepoint))+
+    geom_text(aes(y = rate + .1, label = count))+
+    scale_y_continuous(name = 'Overlap rate', breaks = c(0, .5, 1))+
+    geom_bar(aes(y = rate), stat = 'identity')+theme_classic()
+  
+  #Group by affinity and islands and see if there are differences
+  my_comparisons<-list(c(1, 2), c(1, 6))
+  affinity_vs_grouped.plot<-motif.df %>% dplyr::select(row, region_id, seq_match_quantile) %>% 
+    dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count)) %>%
+    dplyr::filter(island_count<=6) %>%
+    dplyr::group_by(island_count) %>% dplyr::mutate(med_seq_match_quantile = median(seq_match_quantile)) %>%
+    ggplot(., aes(x = island_count, y = seq_match_quantile, group = island_count, fill = med_seq_match_quantile)) +
+    geom_boxplot()+
+    ggpubr::stat_compare_means(comparisons = my_comparisons, method = 't.test')+
+    scale_y_continuous(name = 'Seq match')+
+    scale_fill_gradient(high = '#810f7c', low = 'white', limits = c(.55, .75))+
+    theme_classic()
+
+  metaplot<-counts.plot + affinity_vs_grouped.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_freqs.png'), metaplot, height = 5, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_freqs.pdf'), metaplot, height = 5, width = 10)
+}) 
+```
+
+## Motif contributions
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+  
+  #Import motifs
+  motif.df<-motifs_w_perturb.df %>% dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_0h) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  # Plot CWMs of actual mappings
+  o.list<-os_orientation.list[[x]]
+  p.list<-os_patterns.list[[x]]
+  logos.plot.list<-mclapply(names(shap.bw.list), function(y){
+    message(y)
+    gr<-readr::read_tsv(paste0('modiscolite/atac_', y, '_fold1_atac_counts/hits.tsv')) %>% 
+                        makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+                        dplyr::filter(pattern_name %in% p.list[[paste0('atac_', y)]][1], metacluster_name=='pos_patterns')
+    if(length(gr)>0){
+      seqs<-gr %>% getSeq(bsgenome, ., as.character = T)
+      if(o.list[paste0('atac_', y)]=='-'){
+        seqs<-DNAStringSet(seqs) %>% reverseComplement(.) %>% as.character(.)
+        gr<-gr %>% plyranges::mutate(strand = ifelse(strand=='+', '-', '+'))
+      }
+      contrib.mat<-standard_metapeak_matrix(regions.gr = gr,
+                                          sample.cov = shap.bw.list[[y]],
+                                          keep_region_coordinates = T)
+    seqs_1he.list<-lapply(seqs, function(z) one_hot_encode_DNA(z))
+    contribs.list<-lapply(1:dim(contrib.mat)[1], function(z){
+      seqs_1he.list[[z]] * matrix(rep(contrib.mat[z,], 4), nrow = 4, byrow = T)
+    })
+    cwm<-Reduce("+", contribs.list) / length(contribs.list)
+    
+    cwm.plot<-ggseqlogo(cwm, method = 'custom', seq_type='dna')+
+      scale_x_continuous(name = 'Motif position (bp)')+
+      scale_y_continuous(name = 'Contrib', limits = c(-.005, .035))+
+      ggtitle(paste0(x, '_', y)) + 
+      theme(axis.line.y = element_line(), axis.ticks.y = element_line(),
+            axis.title = element_blank(), axis.text.x = element_blank())
+    } else {cwm.plot<-ggplot()}
+    
+    return(cwm.plot)
+  }, mc.cores = 2)
+  
+  logos.plot<-wrap_plots(logos.plot.list) + plot_layout(ncol = 1)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_contrib.png'), logos.plot, height = 9, width = 3)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_contrib.pdf'), logos.plot, height = 9, width = 3)
+  return(NULL)
+}) 
+```
+
+## Differential accessibility
+
+### Observed data (binned by affinity and arrangements)
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_w_perturb.df %>% dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_0h) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+
+  #Measure effects of accessibility levels from DESeq2
+  atac_comparisons<-colnames(log2FoldChange_atac.df)
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq.df %>% dplyr::select(atac_comparisons, region_id, atac_obs_q_bin)) %>%
+    dplyr::select(atac_comparisons, row) %>%
+    tidyr::pivot_longer(cols = atac_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_comparisons)))
+
+   #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin, atac_obs)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin, atac_obs)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  motifs_w_grouped.df<-motif.df %>% dplyr::select(motif, region_id, row, seq_match_quantile_bin, seq_match_quantile) %>%
+    dplyr::left_join(., regions_w_deseq.df %>% dplyr::select(atac_comparisons, region_id, atac_obs_q_bin, atac_obs_q, atac_obs)) %>%
+    dplyr::left_join(grouped.df %>% dplyr::select(row, island_state) %>% unique()) %>% 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    dplyr::filter(!is.na(island_state))
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+
+  #Plot distributions of isolated or grouped
+  abs_distributions.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = log(atac_obs), fill = island_state))+
+    geom_density(alpha = .5)+
+    scale_x_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_y_continuous(name = 'Density')+
+    scale_fill_manual(values = c('#b2182b', '#2166ac'))+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  abs_distributions.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.png'), abs_distributions.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.pdf'), abs_distributions.plot, height = 4, width = 6)
+  print(wilcox.test(motifs_w_grouped.df %>% dplyr::filter(island_state=='isolated') %>% .$atac_obs %>% log, grouped.df %>% dplyr::filter(island_state=='grouped') %>% .$atac_obs %>% log))
+  
+  #Plot absolute accessibility over categories
+  my_comparisons<-list(c('smq_1','smq_3'))
+  all_abs_acc.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = log(atac_obs)))+
+    geom_boxplot(outliers = F)+
+    ggpubr::stat_compare_means(comparisons = my_comparisons, method = 'wilcox.test')+
+    scale_y_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_x_discrete(name = 'Motif PWM group')+
+    facet_grid(. ~ island_state)+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  all_abs_acc.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.png'), all_abs_acc.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.pdf'), all_abs_acc.plot, height = 4, width = 6)
+
+  #Plot  affinities over categories
+  all_affinities.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    
+    #Remove all poor accessibility regions because we want to consider only open features. 
+    #This cutoff was determined from absolute observed accessibility effects in later plots. See similar results despite changing cutoffs. 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = seq_match_quantile, fill = island_state))+
+    geom_boxplot()+
+    ggpubr::stat_compare_means(method = 'wilcox.test')+
+    scale_y_continuous(name = 'PWM scores')+
+    scale_x_discrete(name = 'Motif PWM group')+
+    ggtitle('Affinities')+
+    theme_classic()
+  all_affinities.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.png'), all_affinities.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.pdf'), all_affinities.plot, height = 4, width = 6)
+
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+  
+  if(x=='Sox2'){affinity_deseq.plot<-affinity_deseq.plot + scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.5, .2))}
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.png'), metaplot, height = 5, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.pdf'), metaplot, height = 5, width = 10)
+
+  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
+  
+  #Group by number of islands, affinity and accessibility (basal)
+  count_deseq_by_acc_and_affinity.plot<-grouped.df %>%
+    dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+    dplyr::group_by(island_state, timepoint, atac_obs_q_bin, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T), 
+                     counts = dplyr::n()) %>%
+    dplyr::filter(counts>= count_threshold) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = factor(island_state), group = interaction(island_state))) +
+    geom_hline(yintercept = 0, linetype = 'dotted')+
+    geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    facet_grid(atac_obs_q_bin ~ seq_match_quantile_bin)+
+    # scale_color_manual(values = viridis(2))+
+    theme_classic()
+  
+  #Group by number of islands
+  count_deseq.plot<-grouped.df %>%
+    dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+    dplyr::filter(island_count<=6) %>%
+    dplyr::group_by(island_count, timepoint, atac_obs_q_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_count, group = interaction(island_count))) +
+    geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    # scale_color_manual(values = turbo(6))+
+    theme_classic()
+  
+  metaplot<-count_deseq_by_acc_and_affinity.plot + count_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_expanded.png'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_expanded.png'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
+
+  print(grouped.df %>%
+          dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+          dplyr::select(island_state, seq_match_quantile_bin, row) %>% unique(.) %>%
+          dplyr::group_by(island_state, seq_match_quantile_bin) %>% dplyr::summarize(count = dplyr::n()))
+  
+  #Plot absolute values as well
+  atac_timepoints<-names(norm.atac.bw.list)
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_atac.df %>% dplyr::select(atac_timepoints, region_id, atac_obs_q_bin)) %>%
+    dplyr::select(atac_timepoints, row) %>%
+    tidyr::pivot_longer(cols = atac_timepoints,
+                        names_to = 'timepoint', values_to = 'atac_obs') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_timepoints)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin)) %>% 
+      dplyr::left_join(regions_w_deseq.df %>% dplyr::select(region_id, island_count, island_content)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  #Group by number of islands, affinity and accessibility (basal)
+  count_deseq_by_acc_and_affinity.plot<-grouped.df %>%
+    dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+    dplyr::group_by(island_state, timepoint, atac_obs_q_bin, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_atac_obs = median(atac_obs, na.rm = T), 
+                     counts = dplyr::n()) %>%
+    dplyr::filter(counts>= count_threshold) %>%
+    ggplot(., aes(x = timepoint, y = med_atac_obs, color = factor(island_state), group = interaction(island_state))) +
+    geom_hline(yintercept = 0, linetype = 'dotted')+
+    geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed RPM-norm ATAC-seq levels')+
+    facet_grid(atac_obs_q_bin ~ seq_match_quantile_bin)+
+    # scale_color_manual(values = viridis(2))+
+    theme_classic()
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_obs_accessibility_expanded.png'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_obs_accessibility_expanded.pdf'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
+  
+  return(NULL)
+})
+```
+
+### Validate which metric explains differential accessibility
+
+Given (1) pwm scores, (2) perturbation scores and (3) marginalization scores, which best explains the differential rates of accessibility changes?
+
+Collect motifs with readouts.
+
+```{r}
+motifs_w_differential_endpoint.df<-motifs_w_perturb.df %>% dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, deseq_15h_vs_0h))
+```
+
+Do using a joint model of all parameters
+
+```{r}
+residuals.df<-lapply(c('Oct4-Sox2','Sox2','Klf4'), function(x){
+    model<-lm(formula = deseq_15h_vs_0h ~ seq_match_quantile + perturb_0h + marg_0h, data =  motifs_w_differential_endpoint.df %>% dplyr::filter(motif==x))
+    af <- anova(model)
+    afss <- af$"Sum Sq"
+    df<-cbind(af,var_explained=afss/sum(afss)*100) %>%
+      dplyr::mutate(motif=x)
+    df$comparison<-rownames(df)
+    return(df)
+  }) %>% rbindlist() %>%
+    dplyr::filter(comparison != 'Residuals') %>%
+    dplyr::mutate(model = 'acc')
+residuals.df
+```
+
+Run single variate regressions instead of multivariate. This may make more sense given the comparisons, so we will do both and make sure that the results don't change the trends we observe.
+
+```{r}
+variables<-c('seq_match_quantile', 'perturb_0h', 'marg_0h')
+
+residuals_indp.df<-lapply(c('Oct4-Sox2','Sox2','Klf4'), function(x){
+    lapply(variables, function(y){
+      motifs_w_differential_endpoint.df$readout<-motifs_w_differential_endpoint.df[[y]]
+      model<-lm(formula = deseq_15h_vs_0h ~ readout, data =  motifs_w_differential_endpoint.df %>% dplyr::filter( motif==x))
+      af <- anova(model)
+      afss <- af$"Sum Sq"
+      df<-cbind(af,var_explained=afss/sum(afss)*100) %>%
+        dplyr::mutate(motif=x)
+      df$comparison<-y
+      return(df)
+    }) %>% rbindlist()
+  }) %>% rbindlist() %>%
+    dplyr::filter(!is.na(`F value`)) %>%
+    dplyr::mutate(model = 'acc')
+residuals_indp.df
+```
+
+Compare models run with independence or not (because I'm paranoid and my regression theory is very rusty)
+
+```{r}
+residuals.df<-dplyr::left_join(residuals.df %>% dplyr::select(motif, var_explained, comparison, model), 
+                 residuals_indp.df %>% dplyr::select(motif, var_explained, comparison, model) %>% dplyr::rename(var_explained_indp = var_explained)) %>%
+  dplyr::mutate(diff_var_expl_comb_diff_indp = round(var_explained - var_explained_indp, 2)) %>%
+  dplyr::arrange(desc(abs(diff_var_expl_comb_diff_indp)))
+```
+
+Yeah, they're similar. Single variate models like distance even more than PWM scores most of the time. Glad that's stable. Correlations also agree.
+
+Visualize residuals
+
+```{r}
+plot<-residuals.df %>%
+  dplyr::filter(motif %in% c('Oct4-Sox2')) %>%
+  ggplot(., aes(x = motif, fill = comparison, y = var_explained))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  facet_grid(. ~ model)+
+  theme_classic() + theme(legend.position = 'bottom')
+plot
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_interpretation_methods.png'), plot, height = 2.5, width = 6.5)
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_interpretation_methods.pdf'), plot, height = 2.5, width = 6.5)
+```
+
+Provide direct correlations between the two groups
+
+```{r}
+motifs_w_differential_endpoint.df %>% dplyr::group_by(motif) %>%
+  dplyr::summarize(diff_vs_perturb = cor(deseq_15h_vs_0h, perturb_0h, method = 'spearman'), 
+                   diff_vs_pwm = cor(deseq_15h_vs_0h, seq_match_quantile, method = 'spearman'),
+                   diff_vs_marg = cor(deseq_15h_vs_0h, marg_0h, method = 'spearman'))
+```
+
+
+### Validate which metric explains differential accessibility
+
+Given (1) pwm scores, (2) perturbation scores and (3) marginalization scores, which best explains the data at the endpoints?
+
+Collect motifs with readouts.
+
+```{r}
+motifs_w_absolute_endpoint.df<-motifs_w_perturb.df %>% dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs))
+```
+
+Do using a joint model of all parameters
+
+```{r}
+residuals.df<-lapply(c('Oct4-Sox2','Sox2','Klf4'), function(x){
+    model<-lm(formula = atac_obs ~ seq_match_quantile + perturb_0h + marg_0h, data =  motifs_w_absolute_endpoint.df %>% dplyr::filter(motif==x))
+    af <- anova(model)
+    afss <- af$"Sum Sq"
+    df<-cbind(af,var_explained=afss/sum(afss)*100) %>%
+      dplyr::mutate(motif=x)
+    df$comparison<-rownames(df)
+    return(df)
+  }) %>% rbindlist() %>%
+    dplyr::filter(comparison != 'Residuals') %>%
+    dplyr::mutate(model = 'acc')
+residuals.df
+```
+
+Run single variate regressions instead of multivariate. This may make more sense given the comparisons, so we will do both and make sure that the results don't change the trends we observe.
+
+```{r}
+variables<-c('seq_match_quantile', 'perturb_0h', 'marg_0h')
+
+residuals_indp.df<-lapply(c('Oct4-Sox2','Sox2','Klf4'), function(x){
+    lapply(variables, function(y){
+      motifs_w_absolute_endpoint.df$readout<-motifs_w_absolute_endpoint.df[[y]]
+      model<-lm(formula = atac_obs ~ readout, data =  motifs_w_absolute_endpoint.df %>% dplyr::filter( motif==x))
+      af <- anova(model)
+      afss <- af$"Sum Sq"
+      df<-cbind(af,var_explained=afss/sum(afss)*100) %>%
+        dplyr::mutate(motif=x)
+      df$comparison<-y
+      return(df)
+    }) %>% rbindlist()
+  }) %>% rbindlist() %>%
+    dplyr::filter(!is.na(`F value`)) %>%
+    dplyr::mutate(model = 'acc')
+residuals_indp.df
+```
+
+Compare models run with independence or not (because I'm paranoid and my regression theory is very rusty)
+
+```{r}
+residuals.df<-dplyr::left_join(residuals.df %>% dplyr::select(motif, var_explained, comparison, model), 
+                 residuals_indp.df %>% dplyr::select(motif, var_explained, comparison, model) %>% dplyr::rename(var_explained_indp = var_explained)) %>%
+  dplyr::mutate(diff_var_expl_comb_diff_indp = round(var_explained - var_explained_indp, 2)) %>%
+  dplyr::arrange(desc(abs(diff_var_expl_comb_diff_indp)))
+```
+
+Yeah, they're similar. Single variate models like distance even more than PWM scores most of the time. Glad that's stable. Correlations also agree.
+
+Visualize residuals
+
+```{r}
+plot<-residuals.df %>%
+  dplyr::filter(motif %in% c('Oct4-Sox2', 'Sox2')) %>%
+  ggplot(., aes(x = motif, fill = comparison, y = var_explained))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  facet_grid(. ~ model)+
+  theme_classic() + theme(legend.position = 'bottom')
+plot
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_interpretation_methods_absolute.png'), plot, height = 2.5, width = 6.5)
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_interpretation_methods_absolute.pdf'), plot, height = 2.5, width = 6.5)
+```
+
+Provide direct correlations between the two groups
+
+```{r}
+motifs_w_differential_endpoint.df %>% dplyr::group_by(motif) %>%
+  dplyr::summarize(diff_vs_perturb = cor(deseq_15h_vs_0h, perturb_0h, method = 'spearman'), 
+                   diff_vs_pwm = cor(deseq_15h_vs_0h, seq_match_quantile, method = 'spearman'),
+                   diff_vs_marg = cor(deseq_15h_vs_0h, marg_0h, method = 'spearman'))
+```
+
+
+### Observed data (binned by context groups)
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_w_perturb.df %>% dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_0h) %>%
+    dplyr::mutate(row = 1:dplyr::n(),
+                  perturb_0h_quantile = ecdf(perturb_0h)(perturb_0h))
+
+  #Measure effects of accessibility levels from DESeq2
+  atac_comparisons<-paste0('deseq_', c('3h','6h','9h','12h','15h'), '_vs_0h')
+  ttseq_comparisons<-paste0('ttseq_', c('3h','6h','9h','12h','15h'), '_vs_0h')
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, ttseq_comparisons, region_id, atac_obs_q_bin)) %>%
+    dplyr::select(atac_comparisons, ttseq_comparisons, row) %>%
+    tidyr::pivot_longer(cols = c(atac_comparisons, ttseq_comparisons),
+                        names_to = 'comparison', values_to = 'deseq') %>%
+    dplyr::mutate(timepoint = gsub('deseq_', '', comparison) %>% gsub('ttseq_', '', .) %>% factor(., unique(.)),
+                  experiment = ifelse(grepl('ttseq', comparison), 'ttseq', 'atacseq'))
+  
+  
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile, coopscore_0h, perturb_0h, marg_0h, perturb_0h_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+    
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile, coopscore_0h, perturb_0h, marg_0h, perturb_0h_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+
+  #Divvy things up by different modes of context, affinities, and responses.
+  states.df<-rbind(
+    grouped.df %>% dplyr::filter(seq_match_quantile<.2, perturb_0h_quantile>.8) %>% dplyr::mutate(custom_class = 'high context, low affinity'),
+    grouped.df %>% dplyr::filter(seq_match_quantile>.8, perturb_0h_quantile>.8) %>% dplyr::mutate(custom_class = 'high context, high affinity'),
+    grouped.df %>% dplyr::filter(abs(coopscore_0h)<=.05, seq_match_quantile>.8) %>% dplyr::mutate(custom_class = 'minimal context-isolation, high affinity'),
+    grouped.df %>% dplyr::filter(abs(coopscore_0h)<=.05, seq_match_quantile<.2) %>% dplyr::mutate(custom_class = 'minimal context-isolation, low affinity')
+  ) %>% dplyr::filter(atac_obs_q_bin>=.6)
+  
+  median_states_timepoint.plot<-states.df %>%
+    dplyr::group_by(experiment, custom_class, timepoint) %>%
+    dplyr::summarize(med_deseq = median(deseq, na.rm = T), freq = dplyr::n()) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq, color = custom_class, group = interaction(custom_class))) +
+    geom_point()+
+    geom_line()+
+    scale_color_manual(name = 'Affinity', values = c('#A11E23', '#E8B4AF', 'black', 'gray'))+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    facet_grid(. ~ experiment)+
+    ggtitle('Obs. diff. levels (timepoints, log)')+
+    theme_classic()
+  
+  median_states_conc.plot<-states.df %>%
+    dplyr::left_join(conc.df %>% dplyr::mutate(timepoint = paste0(treatment, '_vs_0h')) %>% dplyr::select(timepoint, Oct4)) %>%
+    dplyr::group_by(experiment, custom_class, Oct4) %>%
+    dplyr::summarize(med_deseq = median(deseq, na.rm = T), freq = dplyr::n()) %>%
+    ggplot(., aes(x = Oct4, y = med_deseq, color = custom_class, group = interaction(custom_class))) +
+    geom_point()+
+    geom_line()+
+    scale_color_manual(name = 'Affinity', values = c('#A11E23', '#E8B4AF', 'black', 'gray'))+
+    scale_x_continuous(name = 'Relative Oct4 concentration', trans = 'reverse')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    facet_grid(. ~ experiment)+
+    ggtitle('Obs. diff. levels (conc, log)')+
+    theme_classic()
+  
+  median_states_timepoint_exp.plot<-states.df %>%
+    dplyr::group_by(experiment, custom_class, timepoint) %>%
+    dplyr::summarize(med_deseq = median(2^deseq, na.rm = T), freq = dplyr::n()) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq, color = custom_class, group = interaction(custom_class))) +
+    geom_point()+
+    geom_line()+
+    scale_color_manual(name = 'Affinity', values = c('#A11E23', '#E8B4AF', 'black', 'gray'))+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed FC (mut/0h)')+
+    facet_grid(. ~ experiment)+
+    ggtitle('Obs. diff. levels (timepoints, exp)')+
+    theme_classic()
+  
+  median_states_conc_exp.plot<-states.df %>%
+    dplyr::left_join(conc.df %>% dplyr::mutate(timepoint = paste0(treatment, '_vs_0h')) %>% dplyr::select(timepoint, Oct4)) %>%
+    dplyr::group_by(experiment, custom_class, Oct4) %>%
+    dplyr::summarize(med_deseq = median(2^deseq, na.rm = T), freq = dplyr::n()) %>%
+    ggplot(., aes(x = Oct4, y = med_deseq, color = custom_class, group = interaction(custom_class))) +
+    geom_point()+
+    geom_line()+
+    scale_color_manual(name = 'Affinity', values = c('#A11E23', '#E8B4AF', 'black', 'gray'))+
+    scale_x_continuous(name = 'Relative Oct4 concentration', trans = 'reverse')+
+    scale_y_continuous(name = 'Observed FC (mut/0h)')+
+    facet_grid(. ~ experiment)+
+    ggtitle('Obs. diff. levels (conc, exp)')+
+    theme_classic()
+
+  states.metaplot<-median_states_timepoint.plot + median_states_conc.plot + median_states_timepoint_exp.plot + median_states_conc_exp.plot + plot_layout(ncol = 1)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_metaplots_medians.png'), states.metaplot, height = 16, width = 16)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_metaplots_medians.pdf'), states.metaplot, height = 16, width = 16)
+  return(NULL)
+})
+```
+
+## Differential expression
+
+### Observed differential gene expression
+
+```{r}
+#For all motifs, calculate the nearest gene occurrences
+#When we subset, we will still take the only Oct4-Sox2 regulated regions that are nearby a gene ONE TIME within 100Kbp
+motifs_via_occ.gr<-motifs.df %>% dplyr::filter(motif %in% c('Oct4-Sox2', 'Sox2')) %>%
+  dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, reduced_region_id, island_content, island_count)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+ttseq_w_deseq.gr<-ttseq_w_deseq.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+
+motifs_via_occ.gr$gene_name<-ttseq_w_deseq.gr$gene_name[nearest(motifs_via_occ.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_start<-ttseq_w_deseq.df$start[nearest(motifs_via_occ.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_distance<-abs(motifs_via_occ.gr$nearest_gene_start - start(motifs_via_occ.gr))
+
+motifs_via_occ.gr<-motifs_via_occ.gr %>% plyranges::filter(nearest_gene_distance<=100000)
+gene_occurrence.df<-motifs_via_occ.gr %>% as.data.frame %>% 
+  dplyr::select(region_id, gene_name) %>% unique %>% 
+  dplyr::group_by(gene_name) %>% dplyr::summarize(gene_occurrence = dplyr::n())
+
+ttseq_comparisons<-paste0('deseq_', seq(3, 15, 3), 'h_vs_0h')
+```
+
+Plot NUMBER of target genes that are significantly changed over each timepoint for this motif.
+
+```{r}
+plot.list<-lapply(c('Oct4-Sox2','Sox2'), function(x){
+  m.gr<-motifs_via_occ.gr %>% plyranges::filter(motif==x)
+  
+  if(x=='Oct4-Sox2'){
+    m.gr<-m.gr %>% 
+      plyranges::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      plyranges::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    m.gr<-m.gr %>% 
+      plyranges::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      plyranges::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  signif_genes.df<-ttseq_w_signif.df %>% 
+    dplyr::left_join(., gene_occurrence.df) %>%
+    dplyr::mutate(gene_occurrence = ifelse(is.na(gene_occurrence), 0, gene_occurrence)) %>%
+    dplyr::filter(gene_occurrence==1) %>%
+    dplyr::left_join(m.gr %>% as.data.frame %>% dplyr::select(gene_name, region_id, island_count, island_content, nearest_gene_distance, seq_match_quantile_bin) %>% unique,
+                     ., by = 'gene_name') %>%
+    dplyr::filter(!is.na(gene_occurrence), nearest_gene_distance<5000) %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped'))
+  
+  #Calculate how many are significant over each timepoint
+  signif_genes_count.df<-signif_genes.df %>%
+    dplyr::mutate(signif_3h_vs_0h_sign = ifelse(deseq_3h_vs_0h>0, signif_3h_vs_0h, signif_3h_vs_0h*(-1)), #pos is up regulated, neg is down regulated
+                  signif_6h_vs_0h_sign = ifelse(deseq_6h_vs_0h>0, signif_6h_vs_0h, signif_6h_vs_0h*(-1)),
+                  signif_9h_vs_0h_sign = ifelse(deseq_9h_vs_0h>0, signif_9h_vs_0h, signif_9h_vs_0h*(-1)),
+                  signif_12h_vs_0h_sign = ifelse(deseq_12h_vs_0h>0, signif_12h_vs_0h, signif_12h_vs_0h*(-1)),
+                  signif_15h_vs_0h_sign = ifelse(deseq_15h_vs_0h>0, signif_15h_vs_0h, signif_15h_vs_0h*(-1))) %>%
+    dplyr::select(signif_3h_vs_0h_sign, signif_6h_vs_0h_sign, signif_9h_vs_0h_sign, signif_12h_vs_0h_sign, signif_15h_vs_0h_sign, gene_occurrence, island_state, seq_match_quantile_bin) %>%
+    tidyr::pivot_longer(cols = c(signif_3h_vs_0h_sign, signif_6h_vs_0h_sign, signif_9h_vs_0h_sign, signif_12h_vs_0h_sign, signif_15h_vs_0h_sign),
+                        names_to = 'timepoint_comparison', values_to = 'padj_signed') %>%
+    dplyr::filter(!is.na(padj_signed), abs(padj_signed)<=0.1) %>%
+    dplyr::mutate(sign = ifelse(padj_signed>0, 'upreg', 'downreg'),
+                  padj = abs(padj_signed)) %>%
+    tidyr::separate(timepoint_comparison,into = c(NA, 'timepoint', NA, NA, NA), sep = '_') %>%
+    dplyr::mutate(timepoint = timepoint %>% gsub('h', '', .) %>% as.numeric())
+  
+  ggplot(signif_genes_count.df, aes(x = timepoint, fill = island_state))+
+    geom_bar(position = 'dodge')+
+    facet_grid(sign ~ seq_match_quantile_bin)+
+    ggtitle(x)+
+    theme_classic()
+
+})
+wrap_plots(plot.list)
+```
+
+Numbers are too few to tell. This analysis is inconclusive, sadly.
+
+
+Plot magnitude of depletion of nearest target gene.
+
+```{r}
+nearest_gene_count_threshold<-20
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+  
+  motif.gr<-motifs_via_occ.gr %>% dplyr::filter(motif==x) %>%
+    makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+  # ttseq_w_deseq.gr<-ttseq_w_deseq.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+  # 
+  # motif.gr$gene_name<-ttseq_w_deseq.gr$gene_name[nearest(motif.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+  # motif.gr$nearest_gene_start<-ttseq_w_deseq.df$start[nearest(motif.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+  # motif.gr$nearest_gene_distance<-abs(motif.gr$nearest_gene_start - start(motif.gr))
+  # 
+  # motif.gr<-motif.gr %>% plyranges::filter(nearest_gene_distance<=100000)
+  # gene_occurrence.df<-motif.gr %>% as.data.frame %>% dplyr::group_by(gene_name) %>% dplyr::summarize(gene_occurrence = dplyr::n())
+
+  nearest_thresholds<-c(5000, 50000, 100000)
+  #Now, replot but with boundaries rather than simple minimums
+  plot.list<-lapply(nearest_thresholds, function(thresh){
+    message(thresh)
+    lower_bound<-max(nearest_thresholds[nearest_thresholds<thresh])
+    if(is.infinite(lower_bound)){lower_bound<-0}
+
+    motif_near.gr<-motif.gr %>% plyranges::filter(nearest_gene_distance<=thresh,
+                                                  nearest_gene_distance>=lower_bound)
+
+    genes_to_consider.df<-ttseq_w_deseq.gr %>% as.data.frame %>%
+      dplyr::left_join(., gene_occurrence.df) %>%
+      dplyr::mutate(gene_occurrence = ifelse(is.na(gene_occurrence), 0, gene_occurrence),
+                    tteq_at_gene_0h = `X0h_1` + `X0h_2`) %>%
+      dplyr::filter(gene_occurrence==1) %>%
+      dplyr::left_join(motif_near.gr %>% as.data.frame %>% dplyr::select(gene_name, region_id, island_count, island_content) %>% unique,
+                       ., by = 'gene_name') %>%
+      dplyr::filter(!is.na(gene_occurrence)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped'))
+
+    #Collect islands belonging to each motif
+    if(x=='Oct4-Sox2'){
+      grouped.df<-genes_to_consider.df %>% dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+    } else{
+      grouped.df<-genes_to_consider.df %>% dplyr::filter(!grepl('Oct4-Sox2', island_content))
+    }
+    readr::write_tsv(grouped.df, paste0('tsv/mapped_motifs/nearest_genes_curated_1based_wrt_', x, '_thresh_', as.integer(thresh), '.tsv.gz'))
+
+    #Print numbers
+    print(grouped.df %>% dplyr::select(region_id, island_state) %>% unique %>% 
+            dplyr::group_by(island_state) %>% dplyr::summarize(counts = dplyr::n()))
+
+    grouped.df<-grouped.df %>% tidyr::pivot_longer(cols = ttseq_comparisons,
+                                                   names_to = 'timepoint', values_to = 'deseq') %>%
+      dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(ttseq_comparisons), labels = c(ttseq_comparisons %>% gsub('deseq', '', .))))
+    
+
+    #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+    group.plot<-grouped.df %>%
+      dplyr::group_by(island_state, timepoint) %>%
+      dplyr::summarize(med_deseq = median(deseq, na.rm = T),
+                       freq = dplyr::n()) %>%
+      dplyr::filter(freq>=nearest_gene_count_threshold) %>%
+      ggplot(., aes(x = timepoint, y = med_deseq, color = island_state, group = interaction(island_state))) +
+      geom_hline(yintercept = 0, linetype = 'dashed')+
+      geom_point()+
+      geom_line()+
+      # facet_grid(gene_freq ~ .)+
+      scale_x_discrete(name = 'Timepoint')+
+      scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-0.2, 0.05))+
+      ggtitle(paste0('Gene distance threshold: ', lower_bound, ' <=', thresh))+
+      theme_classic()
+
+    return(group.plot)
+  })
+
+  grouped_deseq.plot<-wrap_plots(plot.list, ncol = 1)
+  grouped_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_ttseq_between_', x, '.png'), grouped_deseq.plot, height = 15, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_ttseq_between_', x, '.pdf'), grouped_deseq.plot, height = 15, width = 10)
+})
+```
+
+### Observed differential enhancers
+
+Next, we want to observe what's happening for eRNAs across our different Oct4-Sox2 groups.
+
+```{r}
+timepoints<-names(pred.bw.list)
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+  message(x)
+
+  #Import motifs
+  motif.df<-motifs_w_perturb.df %>% dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_0h) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+
+  #Measure effects of accessibility levels from DESeq2
+  ttseq_comparisons<-paste0('ttseq_', timepoints, '_vs_0h')[-1]
+  obs.df<-motif.df %>% 
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(ttseq_comparisons, region_id, atac_obs_q_bin)) %>%
+    tidyr::pivot_longer(cols = ttseq_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_ttseq') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(ttseq_comparisons)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2|pos_2|pos_9', island_content))
+  }
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+  
+  #Print numbers
+  print(grouped.df %>%
+          dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+          dplyr::select(island_state, seq_match_quantile_bin, row) %>% unique(.) %>%
+          dplyr::group_by(island_state, seq_match_quantile_bin) %>% dplyr::summarize(count = dplyr::n()))
+  
+  #Do different affinities fall in fundamentally different regions?
+  grouped.df %>% dplyr::filter(seq_match_quantile_bin=='smq_2') %>% .$island_content %>% table %>% sort(decreasing = T) %>% head(n=20)
+  grouped.df %>% dplyr::filter(seq_match_quantile_bin=='smq_1') %>% .$island_content %>% table %>% sort(decreasing = T) %>% head(n=20)
+  
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_ttseq = median(deseq_ttseq, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_ttseq, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+  if(x=='Sox2'){grouped_deseq.plot<-grouped_deseq.plot + scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.5, .2))}
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_ttseq = median(deseq_ttseq, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_ttseq, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+  
+  if(x=='Sox2'){affinity_deseq.plot<-affinity_deseq.plot + scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.5, .2))}
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot + plot_annotation(title = paste0('Diff. TT-seq at enhancers for ', x))
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_erna_summary.png'), metaplot, height = 3, width = 8)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_erna_summary.pdf'), metaplot, height = 3, width = 8)
+  
+  return(NULL)
+})
+```
+
+# Export summary of OS motifs
+
+Julia requested this spreadsheet at one point so we could mull over all the results and make sure our interpretations are correct.
+
+Collect expression values.
+
+```{r}
+atac_comparisons<-paste0('deseq_', c('3h','6h','9h','12h','15h'), '_vs_0h')
+ttseq_comparisons<-paste0('ttseq_', c('3h','6h','9h','12h','15h'), '_vs_0h')
+gene_comparisons<-paste0('deseq_', c('3h','6h','9h','12h','15h'), '_vs_0h')
+
+gene_expr.df<-ttseq_w_deseq.df %>% dplyr::select(gene_name, gene_comparisons)
+colnames(gene_expr.df)<-colnames(gene_expr.df) %>% gsub('deseq_', 'deseq_gene_', .)
+
+local_expr.df<-regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs, atac_obs_q, atac_comparisons, ttseq_comparisons)
+colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('deseq_', 'deseq_acc_', .)
+colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('ttseq_', 'deseq_ttseq_', .)
+```
+
+Recalculate motif distances with unlimited lengths.
+
+```{r}
+#Collect motifs with no limits on nearest gene start
+motifs_via_occ.gr<-motifs.df %>% dplyr::filter(motif %in% c('Oct4-Sox2', 'Sox2')) %>%
+  dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, reduced_region_id, island_content, island_count)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+ttseq_w_deseq.gr<-ttseq_w_deseq.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+
+motifs_via_occ.gr$gene_name<-ttseq_w_deseq.gr$gene_name[nearest(motifs_via_occ.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_start<-ttseq_w_deseq.df$start[nearest(motifs_via_occ.gr, ttseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_distance<-abs(motifs_via_occ.gr$nearest_gene_start - start(motifs_via_occ.gr))
+```
+
+Figure out which motifs are mapped across each timepoint.
+
+```{r}
+p.list<-os_patterns.list[['Oct4-Sox2']]
+mapped.df<-mclapply(names(p.list), function(y){
+  hits.gr<-readr::read_tsv(paste0('modiscolite/', y, '_fold1_atac_counts/hits.tsv')) %>% 
+    makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+    dplyr::filter(pattern_name %in% p.list[[y]], metacluster_name=='pos_patterns')
+  overlapsAny(motifs_w_perturb.df %>% makeGRangesFromDataFrame(keep.extra.columns = F, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end'), hits.gr, ignore.strand = T)
+}, mc.cores = 2) %>% as.data.frame()
+colnames(mapped.df)<-names(p.list) %>% gsub('atac_', 'mapped_by_', .)
+```
+
+Collect and export motifs.
+
+```{r}
+collected_motifs.df<-motifs_w_perturb.df %>% dplyr::select(seqnames, start, end, motif, motif_id, region_id, seq_match_quantile, 
+                                      paste0('contrib_', names(shap.bw.list)), paste0('marg_', names(shap.bw.list)), paste0('perturb_', names(shap.bw.list)),
+                                      island_content) %>%
+  cbind(., mapped.df) %>%
+  dplyr::left_join(., local_expr.df) %>%
+  dplyr::left_join(., motifs_via_occ.gr %>% as.data.frame %>% dplyr::select(motif_id, nearest_gene_start, nearest_gene_distance, gene_name)) %>%
+  dplyr::left_join(., gene_occurrence.df) %>%
+  dplyr::left_join(., gene_expr.df %>% dplyr::group_by(gene_name) %>% dplyr::slice_max(deseq_gene_12h_vs_0h, with_ties = F)) %>%
+  dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+  dplyr::filter(motif=='Oct4-Sox2') %>%
+  dplyr::filter(atac_obs_q_bin>=.6)
+
+writexl::write_xlsx(collected_motifs.df, 'misc/formatted_Oct4Sox2_motifs_over_concentration_depletion.xlsx')
+```
+
+# Assess overall accessibility wrt context
+
+```{r}
+local_expr.df<-regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs, atac_obs_q, atac_comparisons, ttseq_comparisons)
+colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('deseq_', 'deseq_acc_', .)
+colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('ttseq_', 'deseq_ttseq_', .)
+
+motifs_w_metadata.df<-motifs_w_perturb.df %>% dplyr::select(seqnames, start, end, motif, motif_id, region_id, seq_match_quantile, 
+                                      paste0('contrib_', names(shap.bw.list)), paste0('marg_', names(shap.bw.list)), paste0('perturb_', names(shap.bw.list)),
+                                      island_content) %>%
+  dplyr::left_join(., motifs_via_occ.gr %>% as.data.frame %>% dplyr::select(motif_id, nearest_gene_start, nearest_gene_distance, gene_name)) %>%
+  dplyr::left_join(., local_expr.df) %>%
+  dplyr::left_join(., regions_w_atac.df %>% dplyr::select(region_id, paste0(seq(0, 15, 3), 'h'), CpG_ratio)) %>%
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2')) %>% 
+  dplyr::mutate(cpg_island = CpG_ratio>.6) %>%
+  dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+  dplyr::filter(atac_obs_q_bin>=.6)
+
+context_vs_acc_0h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_0h, y = log(`0h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc_9h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_9h, y = log(`9h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_9h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc_15h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_15h, y = log(`15h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_15h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc.plot<-context_vs_acc_0h.plot + context_vs_acc_9h.plot + context_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_obs_vs_ic_scatter.png'), context_vs_acc.plot, height = 20, width = 8)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_obs_vs_ic_scatter.pdf'), context_vs_acc.plot, height = 20, width = 8)
+```
+
+```{r}
+isolation_vs_acc_0h.plot<-ggplot(motifs_w_metadata.df, aes(x = marg_0h, y = log(`0h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc marg. log(inj/mut)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+isolation_vs_acc_9h.plot<-ggplot(motifs_w_metadata.df, aes(x = marg_9h, y = log(`9h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc marg. log(inj/mut)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_9h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+isolation_vs_acc_15h.plot<-ggplot(motifs_w_metadata.df, aes(x = marg_15h, y = log(`15h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc marg. log(inj/mut)')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_15h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+isolation_vs_acc.plot<-isolation_vs_acc_0h.plot + isolation_vs_acc_9h.plot + isolation_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_marg_vs_acc_obs_vs_ic_scatter.png'), isolation_vs_acc.plot, height = 20, width = 8)
+ggsave(paste0(figure_filepath, '/acc_marg_vs_acc_obs_vs_ic_scatter.pdf'), isolation_vs_acc.plot, height = 20, width = 8)
+```
+
+Examine context - isolation scores
+
+```{r}
+coopscore_vs_acc_0h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_0h - marg_0h, y = log(`0h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc_9h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_9h - marg_9h, y = log(`9h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_9h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc_15h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_15h - marg_15h, y = log(`15h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(cpg_island~motif, drop = T)+
+  ggtitle('atac_15h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc.plot<-coopscore_vs_acc_0h.plot + coopscore_vs_acc_9h.plot + coopscore_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_coopscore_vs_acc_obs_vs_ic_scatter.png'), coopscore_vs_acc.plot, height = 20, width = 8)
+ggsave(paste0(figure_filepath, '/acc_coopscore_vs_acc_obs_vs_ic_scatter.pdf'), coopscore_vs_acc.plot, height = 20, width = 8)
+```
+
+Examine cooperativity over time course. 
+
+```{r}
+all_perturbs.df<-readr::read_tsv('tsv/mapped_motifs/all_pairs_curated_0based_with_cooperativity.tsv.gz') %>%
+  dplyr::mutate(motif_pair_distance = abs(pattern_center.y - pattern_center.x)) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(motif_pair_ordered = paste(sort(c(motif.x, motif.y)), collapse = " vs "),
+                motif_pair_blind = paste0(motif.x, ' vs ', motif.y)) %>% 
+  #Remove directionality from pairs by removing one of A->B and B->A pairs
+  # dplyr::filter(motif_pair_ordered==motif_pair_blind) %>% 
+  dplyr::ungroup()
+
+models.list<-list(bpnet_osknz = c('oct4','sox2','nanog','klf4','zic3'),
+                  atac_wt = c('atac'),
+                  atac_0h = c('atac'),
+                  atac_3h = c('atac'),
+                  atac_6h = c('atac'),
+                  atac_9h = c('atac'),
+                  atac_12h = c('atac'),
+                  atac_15h = c('atac'))
+
+models_of_interest<-c('atac_wt','atac_0h','atac_9h','atac_15h')
+
+perturbs.df<-mclapply(models_of_interest, function(x){
+  p.df<-lapply(models.list[[x]], function(task){
+    all_perturbs.df %>% 
+      dplyr::select(region_id, pair_name, pair_id, motif_pair_ordered, motif_pair_blind, motif_pair_distance, 
+                    motif.x, motif.y, seq_match_quantile.x, seq_match_quantile.y,
+                    hAB_sum = !!sym(paste0(x, '/', task, '/hAB/pred_sum')),
+                    hB_sum = !!sym(paste0(x, '/', task, '/hB/pred_sum')),
+                    hA_sum = !!sym(paste0(x, '/', task, '/hA/pred_sum')),
+                    null_sum = !!sym(paste0(x, '/', task, '/null/pred_sum'))) %>%
+      dplyr::mutate(model_name = x,
+                    task = task,
+                    distance_class = cut(motif_pair_distance, 
+                                         breaks = distance_class_breaks, 
+                                         labels = distance_class_labels, 
+                                         include.lowest = T),
+                    add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+                    dir_coop = (hAB_sum - (hB_sum - null_sum))/(hA_sum),
+                    mult_coop = log(hAB_sum/null_sum)/log((hA_sum*hB_sum)/(null_sum*null_sum)),
+                    joint_effects = hAB_sum - null_sum,
+                    marginal_effects = hA_sum + hB_sum - 2*null_sum,
+                  A_effects = hA_sum - null_sum,
+                  B_effects = hB_sum - null_sum)
+  }) %>% rbindlist(.)
+}, mc.cores = 6) %>% rbindlist(.) %>%
+  dplyr::filter(motif_pair_distance<=400)
+
+pairs_w_metadata.df<-perturbs.df %>%
+  dplyr::left_join(., local_expr.df) %>%
+  dplyr::left_join(., regions_w_atac.df %>% dplyr::select(region_id, paste0(seq(0, 15, 3), 'h'))) %>%
+  dplyr::filter(motif.x %in% c('Oct4-Sox2','Sox2'), motif.y %in% c('Oct4-Sox2','Sox2'))
+
+
+coop_vs_acc_0h.plot<-ggplot(pairs_w_metadata.df %>% dplyr::filter(model_name=='atac_0h'), aes(x = log(add_coop), y = log(`0h`)))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'Coop', limits = c(-4, 4))+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(~motif_pair_ordered, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop_vs_acc_9h.plot<-ggplot(pairs_w_metadata.df %>% dplyr::filter(model_name=='atac_9h'), aes(x = log(add_coop), y = log(`9h`)))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'Coop', limits = c(-4, 4))+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(~motif_pair_ordered, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop_vs_acc_15h.plot<-ggplot(pairs_w_metadata.df %>% dplyr::filter(model_name=='atac_15h'), aes(x = log(add_coop), y = log(`15h`)))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'Coop', limits = c(-4, 4))+
+  scale_y_continuous(name = 'Acc obs (log)')+
+  facet_grid(~motif_pair_ordered, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop_vs_acc.plot<-coop_vs_acc_0h.plot + coop_vs_acc_9h.plot + coop_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_coop_vs_acc_obs_vs_ic_scatter.png'), coop_vs_acc.plot, height = 12, width = 8)
+ggsave(paste0(figure_filepath, '/acc_coop_vs_acc_obs_vs_ic_scatter.pdf'), coop_vs_acc.plot, height = 12, width = 8)
+```
+
+# Assess predicted accessibility wrt context
+
+```{r}
+# local_expr.df<-regions_w_deseq_both.df %>% dplyr::select(region_id, atac_pred, atac_pred_q, atac_comparisons, ttseq_comparisons)
+# colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('deseq_', 'deseq_acc_', .)
+# colnames(local_expr.df)<-colnames(local_expr.df) %>% gsub('ttseq_', 'deseq_ttseq_', .)
+
+motifs_w_metadata.df<-motifs_w_perturb.df %>% dplyr::select(seqnames, start, end, motif, motif_id, region_id, seq_match_quantile, 
+                                      paste0('contrib_', names(shap.bw.list)), paste0('marg_', names(shap.bw.list)), paste0('perturb_', names(shap.bw.list)),
+                                      island_content) %>%
+  dplyr::left_join(., regions_w_pred_atac.df %>% dplyr::select(region_id, paste0(seq(0, 15, 3), 'h'), CpG_ratio)) %>%
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2')) %>% 
+  dplyr::mutate(cpg_island = CpG_ratio>.6) %>%
+  dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(region_id, atac_obs_q_bin)) %>%
+  dplyr::filter(atac_obs_q_bin>=.6)
+
+context_vs_acc_0h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_0h, y = log(`0h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc_9h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_9h, y = log(`9h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_9h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc_15h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_15h, y = log(`15h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc perturb. log(WT/dA)')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_15h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+context_vs_acc.plot<-context_vs_acc_0h.plot + context_vs_acc_9h.plot + context_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_pred_vs_ic_scatter.png'), context_vs_acc.plot, height = 12, width = 8)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_pred_vs_ic_scatter.pdf'), context_vs_acc.plot, height = 12, width = 8)
+```
+
+Examine context - isolation scores
+
+```{r}
+coopscore_vs_acc_0h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_0h - marg_0h, y = log(`0h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_0h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc_9h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_9h - marg_9h, y = log(`9h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_9h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc_15h.plot<-ggplot(motifs_w_metadata.df, aes(x = perturb_15h - marg_15h, y = log(`15h`), color = seq_match_quantile))+
+  ggrastr::geom_point_rast(size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  scale_color_gradientn(colours = viridis(5), name = 'PWM score %ile')+
+  scale_x_continuous(name = 'acc coopscore. perturb - marg')+
+  scale_y_continuous(name = 'Acc pred (log)')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('atac_15h')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coopscore_vs_acc.plot<-coopscore_vs_acc_0h.plot + coopscore_vs_acc_9h.plot + coopscore_vs_acc_15h.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/acc_coopscore_vs_acc_pred_vs_ic_scatter.png'), coopscore_vs_acc.plot, height = 12, width = 8)
+ggsave(paste0(figure_filepath, '/acc_coopscore_vs_acc_pred_vs_ic_scatter.pdf'), coopscore_vs_acc.plot, height = 12, width = 8)
+```
+
+# Assess summarized acc vs context
+
+```{r}
+obs_vs_context_summary.df<-motifs_w_perturb.df %>% dplyr::select(seqnames, start, end, motif, motif_id, region_id, seq_match_quantile, 
+                                      paste0('contrib_', names(shap.bw.list)), paste0('marg_', names(shap.bw.list)), paste0('perturb_', names(shap.bw.list)),
+                                      island_content) %>%
+  dplyr::left_join(., regions_w_atac.df %>% dplyr::select(region_id, paste0(seq(0, 15, 3), 'h'), CpG_ratio) %>% dplyr::mutate(`0h_q` = ecdf(`0h`)(`0h`))) %>%
+  dplyr::mutate(`0h_q_bin` = plyr::round_any(`0h_q`, .1, ceiling)) %>% 
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2')) %>%
+  dplyr::group_by(motif, `0h_q_bin`, seq_match_quantile) %>%
+  dplyr::mutate(`perturb_0h_med` = median(perturb_0h),
+                `perturb_9h_med` = median(perturb_9h),
+                `perturb_15h_med` = median(perturb_15h),
+                `coopscore_0h_med` = median(perturb_0h - marg_0h),
+                `coopscore_9h_med` = median(perturb_9h - marg_9h),
+                `coopscore_15h_med` = median(perturb_15h - marg_15h),
+                med_seq_match = median(seq_match_quantile)) %>%
+  dplyr::filter(`0h_q_bin`>=.6)
+
+coopscore_vs_acc_0h_bin.plot<-ggplot(obs_vs_context_summary.df, 
+                                     aes(x = `0h_q_bin`, y = coopscore_0h_med, fill = med_seq_match, 
+                                         group = `0h_q_bin`))+
+  geom_boxplot()+
+  scale_color_gradient(high = 'purple', low = 'white', name = 'Med. PWM score %ile')+
+  scale_y_continuous(name = 'Acc coopscore. perturb - marg')+
+  scale_x_continuous(name = 'Acc obs quantile bin')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('ATAC (0h)')+
+  theme_classic() + theme(legend.position = 'bottom')
+coopscore_vs_acc_0h_bin.plot
+
+perturb_vs_acc_0h_bin.plot<-ggplot(obs_vs_context_summary.df, 
+                                     aes(x = `0h_q_bin`, y = perturb_0h_med, fill = med_seq_match, 
+                                         group = `0h_q_bin`))+
+  geom_boxplot()+
+  scale_color_gradient(high = 'purple', low = 'white', name = 'Med. PWM score %ile')+
+  scale_y_continuous(name = 'Acc context')+
+  scale_x_continuous(name = 'Acc obs quantile bin')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('ATAC (0h)')+
+  theme_classic() + theme(legend.position = 'bottom')
+perturb_vs_acc_0h_bin.plot
+
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_obs_summary.png'), perturb_vs_acc_0h_bin.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_obs_summary.pdf'), perturb_vs_acc_0h_bin.plot, height = 4, width = 8)
+```
+
+```{r}
+pred_vs_context_summary.df<-motifs_w_perturb.df %>% dplyr::select(seqnames, start, end, motif, motif_id, region_id, seq_match_quantile, 
+                                      paste0('contrib_', names(shap.bw.list)), paste0('marg_', names(shap.bw.list)), paste0('perturb_', names(shap.bw.list)),
+                                      island_content) %>%
+  dplyr::left_join(., regions_w_pred_atac.df %>% dplyr::select(region_id, paste0(seq(0, 15, 3), 'h'), CpG_ratio) %>% dplyr::mutate(`0h_q` = ecdf(`0h`)(`0h`))) %>%
+  dplyr::mutate(`0h_q_bin` = plyr::round_any(`0h_q`, .1, ceiling)) %>% 
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2')) %>%
+  dplyr::group_by(motif, `0h_q_bin`, seq_match_quantile) %>%
+  dplyr::mutate(`perturb_0h_med` = median(perturb_0h),
+                `perturb_9h_med` = median(perturb_9h),
+                `perturb_15h_med` = median(perturb_15h),
+                `coopscore_0h_med` = median(perturb_0h - marg_0h),
+                `coopscore_9h_med` = median(perturb_9h - marg_9h),
+                `coopscore_15h_med` = median(perturb_15h - marg_15h),
+                med_seq_match = median(seq_match_quantile)) %>%
+  dplyr::filter(`0h_q_bin`>=.6)
+
+coopscore_vs_acc_0h_bin.plot<-ggplot(pred_vs_context_summary.df, 
+                                     aes(x = `0h_q_bin`, y = coopscore_0h_med, fill = med_seq_match, 
+                                         group = `0h_q_bin`))+
+  geom_boxplot()+
+  scale_color_gradient(high = 'purple', low = 'white', name = 'Med. PWM score %ile')+
+  scale_y_continuous(name = 'Acc coopscore. perturb - marg')+
+  scale_x_continuous(name = 'Acc pred quantile bin')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('ATAC (0h)')+
+  theme_classic() + theme(legend.position = 'bottom')
+coopscore_vs_acc_0h_bin.plot
+
+perturb_vs_acc_0h_bin.plot<-ggplot(pred_vs_context_summary.df, 
+                                     aes(x = `0h_q_bin`, y = perturb_0h_med, fill = med_seq_match, 
+                                         group = `0h_q_bin`))+
+  geom_boxplot()+
+  scale_color_gradient(high = 'purple', low = 'white', name = 'Med. PWM score %ile')+
+  scale_y_continuous(name = 'Acc context')+
+  scale_x_continuous(name = 'Acc pred quantile bin')+
+  facet_grid(.~motif, drop = T)+
+  ggtitle('ATAC (0h)')+
+  theme_classic() + theme(legend.position = 'bottom')
+perturb_vs_acc_0h_bin.plot
+
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_pred_summary.png'), perturb_vs_acc_0h_bin.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/acc_perturb_vs_acc_pred_summary.pdf'), perturb_vs_acc_0h_bin.plot, height = 4, width = 8)
+```
+
+# Summarize isolation/context by mapped/unmapped over timepoints
+
+Barplots to show median context/isolation scores a la F1 based on whether they are mapped/unmapped by timepoint. Alongside this, show local accessibility effects.
+
+```{r}
+median_m.df<-lapply(paste0(seq(0, 15, 3), 'h'), function(x){
+  collected_motifs.df %>% dplyr::filter(!!sym(paste0('mapped_by_', x))) %>% dplyr::group_by(motif) %>%
+  dplyr::summarize(med_perturb = median(!!sym(paste0('perturb_', x))),
+                   med_marg = median(!!sym(paste0('marg_', x))),
+                   med_deseq_acc_15h_vs_0h = median(deseq_acc_15h_vs_0h)) %>%
+    dplyr::mutate(timepoint = x)
+}) %>% rbindlist() %>% 
+  dplyr::mutate(timepoint = factor(timepoint, paste0(seq(0, 15, 3), 'h')))
+
+interp.plot<-median_m.df %>%
+  tidyr::pivot_longer(cols = c('med_perturb', 'med_marg'), names_to = 'type', values_to = 'mut_effect') %>%
+  ggplot(., aes(x = timepoint, y = mut_effect, fill = type))+
+  geom_bar(stat = 'identity', position = 'dodge', color = 'black')+
+  scale_y_continuous(name = 'Median Context or isolation scores')+
+  scale_x_discrete(name = 'Motifs mapped by timepoint')+
+  scale_fill_manual(values = c('#fdb863', '#8073ac'))+
+  ggtitle('Predicted effects')+
+  theme_classic() + theme(legend.position = 'bottom')
+rel_interp.plot<-median_m.df %>%
+  dplyr::mutate(coop_score = log(med_perturb/med_marg)) %>%
+  ggplot(., aes(x = timepoint, y = coop_score))+
+  geom_bar(stat = 'identity', position = 'dodge', fill = '#4575b4', color = 'black')+
+  scale_y_continuous(name = 'log(context/isolation)')+
+  scale_x_discrete(name = 'Motifs mapped by timepoint')+
+  ggtitle('Relative cooperativity boost')+
+  theme_classic() + theme(legend.position = 'bottom')
+abs_interp.plot<-median_m.df %>%
+  dplyr::mutate(coop_score = med_perturb - med_marg) %>%
+  ggplot(., aes(x = timepoint, y = coop_score))+
+  geom_bar(stat = 'identity', position = 'dodge', fill = 'navy', color = 'black')+
+  scale_y_continuous(name = 'context - isolation')+
+  scale_x_discrete(name = 'Motifs mapped by timepoint')+
+  ggtitle('Absolute cooperativity boost')+
+  theme_classic() + theme(legend.position = 'bottom')
+acc.plot<-ggplot(median_m.df, aes(x = timepoint, y = -1 * med_deseq_acc_15h_vs_0h))+
+  geom_bar(stat = 'identity', position = 'dodge', fill = 'black')+
+  scale_y_continuous(name = 'Median diff DESeq2 acc (wt/mut)')+
+  scale_x_discrete(name = 'Motifs mapped by timepoint')+
+  ggtitle('Observed acc. effects')+
+  theme_classic()
+plot<-interp.plot + rel_interp.plot + abs_interp.plot + acc.plot + plot_layout(nrow = 1, widths = c(2, 1, 1, 1))
+plot
+
+ggsave(paste0(figure_filepath, '/interp_by_mapped.png'), plot, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/interp_by_mapped.pdf'), plot, height = 4, width = 12)
+```
+
+Further, statistically validate that context scores (versus PWM scores or isolation scores) are the most predictive of whether a motif will be mapped or not.
+
+```{r}
+interp_vs_mapping_longevity.df<-collected_motifs.df %>% tidyr::pivot_longer(cols = paste0('mapped_by_', seq(0, 12, 3), 'h'), names_to = 'timepoint', values_to = 'mapped_status') %>%
+  dplyr::select(perturb_0h, marg_0h, seq_match_quantile, motif_id, timepoint, mapped_status) %>%
+  dplyr::mutate(timepoint = gsub('mapped_by_', '', timepoint) %>% gsub('h', '', .) %>% as.numeric()) %>%
+  dplyr::filter(mapped_status) %>%
+  dplyr::group_by(motif_id) %>% 
+  dplyr::slice_max(timepoint, n=1, with_ties = F, na_rm = T)
+```
+
+Test residuals explaining which one causes longest mapped motif.
+
+```{r}
+model<-lm(formula = timepoint ~ seq_match_quantile + perturb_0h + marg_0h, data =  interp_vs_mapping_longevity.df)
+af <- anova(model)
+afss <- af$"Sum Sq"
+df<-cbind(af,var_explained=afss/sum(afss)*100)
+df$comparison<-rownames(df)
+df
+
+model<-lm(formula = timepoint ~ seq_match_quantile, data =  interp_vs_mapping_longevity.df)
+af <- anova(model)
+afss <- af$"Sum Sq"
+seq.df<-cbind(af,var_explained=afss/sum(afss)*100)
+seq.df$comparison<-rownames(seq.df)
+seq.df
+
+model<-lm(formula = timepoint ~ perturb_0h, data =  interp_vs_mapping_longevity.df)
+af <- anova(model)
+afss <- af$"Sum Sq"
+perturb.df<-cbind(af,var_explained=afss/sum(afss)*100)
+perturb.df$comparison<-rownames(perturb.df)
+perturb.df
+
+model<-lm(formula = timepoint ~ marg_0h, data =  interp_vs_mapping_longevity.df)
+af <- anova(model)
+afss <- af$"Sum Sq"
+marg.df<-cbind(af,var_explained=afss/sum(afss)*100)
+marg.df$comparison<-rownames(marg.df)
+marg.df
+```
+
+Quantify levels that are explained by each feature.
+
+```{r}
+plot<-rbind(seq.df %>% dplyr::mutate(type = 'seq'), marg.df %>% dplyr::mutate(type = 'marg'), perturb.df %>% dplyr::mutate(type = 'perturb')) %>%
+  dplyr::filter(comparison!='Residuals') %>%
+  ggplot(., aes(x = type, fill = type, y = var_explained))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  theme_classic() + theme(legend.position = 'bottom')
+plot
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_mapping_frequency.png'), plot, height = 2.5, width = 6.5)
+ggsave(paste0(figure_filepath, '/perturb_vs_pwm_and_mapping_frequency.pdf'), plot, height = 2.5, width = 6.5)
+```
+
+Barplots to show median context/isolation scores a la F1 based on whether they are mapped/unmapped by timepoint. Alongside this, show local accessibility effects. However, resummarize by looking at EACH timepoint by filtering for motifs maintained so its the "same" set of motifs per plot
+
+```{r}
+plot_all<-lapply(paste0(seq(0, 12, 3), 'h'), function(y){
+  
+  median_m.df<-lapply(paste0(seq(0, 15, 3), 'h'), function(x){
+    collected_motifs.df %>% dplyr::mutate(deseq_acc_0h_vs_0h = 0) %>% dplyr::filter(!!sym(paste0('mapped_by_', y))) %>% dplyr::group_by(motif) %>%
+      dplyr::summarize(med_perturb = median(!!sym(paste0('perturb_', x))),
+                       med_marg = median(!!sym(paste0('marg_', x))),
+                       med_deseq_acc_mut_vs_0h = median(!!sym(paste0('deseq_acc_', x, '_vs_0h')))) %>%
+      dplyr::mutate(timepoint = x)
+  }) %>% rbindlist() %>% 
+    dplyr::mutate(timepoint = factor(timepoint, paste0(seq(0, 15, 3), 'h')))
+  
+  interp.plot<-median_m.df %>%
+    tidyr::pivot_longer(cols = c('med_perturb', 'med_marg'), names_to = 'type', values_to = 'mut_effect') %>%
+    ggplot(., aes(x = timepoint, y = mut_effect, fill = type))+
+    geom_bar(stat = 'identity', position = 'dodge', color = 'black')+
+    scale_y_continuous(name = 'Median Context or isolation scores', limits = c(0, .65))+
+    scale_x_discrete(name = 'Motifs mapped by timepoint')+
+    scale_fill_manual(values = c('#fdb863', '#8073ac'))+
+    ggtitle('Predicted effects', subtitle = paste0('Motifs mapped only from ', y))+
+    theme_classic() + theme(legend.position = 'bottom')
+  rel_interp.plot<-median_m.df %>%
+    dplyr::mutate(coop_score = log(med_perturb/med_marg)) %>%
+    ggplot(., aes(x = timepoint, y = coop_score))+
+    geom_bar(stat = 'identity', position = 'dodge', fill = '#4575b4', color = 'black')+
+    scale_y_continuous(name = 'log(context/isolation)', limits = c(0, 3.5))+
+    scale_x_discrete(name = 'Motifs mapped by timepoint')+
+    ggtitle('Relative cooperativity boost', subtitle = paste0('Motifs mapped only from ', y))+
+    theme_classic() + theme(legend.position = 'bottom')
+  abs_interp.plot<-median_m.df %>%
+    dplyr::mutate(coop_score = med_perturb - med_marg) %>%
+    ggplot(., aes(x = timepoint, y = coop_score))+
+    geom_bar(stat = 'identity', position = 'dodge', fill = 'navy', color = 'black')+
+    scale_y_continuous(name = 'context - isolation', limits = c(0, 0.4))+
+    scale_x_discrete(name = 'Motifs mapped by timepoint')+
+    ggtitle('Absolute cooperativity boost', subtitle = paste0('Motifs mapped only from ', y))+
+    theme_classic() + theme(legend.position = 'bottom')
+  acc.plot<-ggplot(median_m.df, aes(x = timepoint, y = -1 * med_deseq_acc_mut_vs_0h))+
+    geom_bar(stat = 'identity', position = 'dodge', fill = 'black')+
+    scale_y_continuous(name = 'Median diff DESeq2 acc (wt/mut)', limits = c(0, .85))+
+    scale_x_discrete(name = 'Motifs mapped by timepoint')+
+    ggtitle('Observed acc. effects', subtitle = paste0('Motifs mapped only from ', y))+
+    theme_classic()
+  plot<-interp.plot + rel_interp.plot + abs_interp.plot + acc.plot + plot_layout(nrow = 1, widths = c(2, 1, 1, 1))
+  
+  return(plot)
+  
+}) %>% wrap_plots(ncol = 1)
+ggsave(paste0(figure_filepath, '/interp_by_mapped_motifs_separated_by_motifs_mapped_by_timepoints.png'), plot_all, height = 20, width = 12)
+ggsave(paste0(figure_filepath, '/interp_by_mapped_motifs_separated_by_motifs_mapped_by_timepoints.pdf'), plot_all, height = 20, width = 12)
+```
+
+# Assess cooperativity and affinity and distance
+
+## Plot in vivo contribution across different states
+
+Format in vivo contribution scores across relevant motifs.
+
+```{r}
+curated_islands_of_interest<-c('Oct4-Sox2', 'Oct4-Sox2_Sox2')
+contrib_limits<-c(-.02, .38)
+
+motifs_w_islands.df<-motifs.df %>% dplyr::left_join(., regions.gr %>% as.data.frame %>% dplyr::select(region_id, island_content, island_content_unique, island_count)) %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::mutate(distance = max(end)-min(start),
+                distance_bin = cut(distance, breaks=distance_class_breaks, include.lowest = T, labels = distance_class_labels),
+                ic_match_bin = cut(seq_match_quantile, breaks = seq(0, 1, .2), labels = paste0('q', 1:5), include.lowest = T))%>%
+  dplyr::ungroup()
+
+os_alone_or_w_1_partner.df<-motifs_w_islands.df %>% 
+  dplyr::filter(motif=='Oct4-Sox2', island_content_unique %in% curated_islands_of_interest, 
+                island_count<=2, !(island_content_unique=='Oct4-Sox2' & island_count==2)) %>%
+  as.data.table %>%
+  dplyr::left_join(., motifs_w_islands.df %>% dplyr::filter(motif=='Sox2') %>% dplyr::select(region_id, ic_match_bin) %>% dplyr::rename(sox2_ic_match_bin = ic_match_bin)) %>%
+  melt.data.table(id.vars = c('motif_id', 'island_content_unique', 'ic_match_bin', 'sox2_ic_match_bin', 'distance_bin', 'island_count'), 
+                  measure.vars = names(shap.bw.list), 
+                  variable.name = 'treatment', value.name = 'acc_contrib') %>%
+  dplyr::mutate(treatment_numeric = gsub('h', '', treatment) %>% as.numeric())
+```
+
+Plot relationship to affinity.
+
+```{r}
+affinity.plot<-os_alone_or_w_1_partner.df %>%
+  dplyr::filter(ic_match_bin %in% c('q1','q5')) %>%
+  dplyr::group_by(ic_match_bin, treatment_numeric) %>%
+  dplyr::summarize(acc_contrib_med = median(acc_contrib),
+                   count = dplyr::n()) %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = treatment_numeric, y = acc_contrib_med, color = ic_match_bin))+
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'black')+
+  geom_line()+ geom_point()+
+  geom_text(aes(x = Inf, y = Inf, label = count), hjust = 1, vjust = 1)+
+  scale_color_manual(name = 'Affinity', values = c('#E8B4AF', '#A11E23'))+
+  scale_y_continuous(name = 'Median acc. contrib', limits = contrib_limits)+
+  scale_x_continuous(name = 'Treatment (h)', breaks = seq(0, 15, 3))+
+  theme_classic() + theme(legend.position = 'bottom')
+affinity.plot
+```
+
+Plot role of cooperativity.
+
+```{r}
+cooperativity.plot<-os_alone_or_w_1_partner.df %>%
+  dplyr::filter(ic_match_bin %in% c('q1','q5')) %>%
+  dplyr::group_by(ic_match_bin, island_count, treatment_numeric) %>%
+  dplyr::summarize(acc_contrib_med = median(acc_contrib),
+                   count = dplyr::n()) %>%
+  dplyr::filter(count>=count_threshold) %>%
+  dplyr::mutate(island_count = factor(island_count, levels = unique(island_count))) %>%
+  ggplot(., aes(x = treatment_numeric, y = acc_contrib_med, color = ic_match_bin, linetype = island_count))+
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'black')+
+  geom_line()+ geom_point()+
+  geom_text(aes(x = Inf, y = Inf, label = count), hjust = 1, vjust = 1)+
+  scale_color_manual(name = 'Affinity', values = c('#E8B4AF', '#A11E23'))+
+  scale_y_continuous(name = 'Median acc. contrib', limits = contrib_limits)+
+  scale_x_continuous(name = 'Treatment (h)', breaks = seq(0, 15, 3))+
+  scale_linetype_manual(values = c('solid', 'dashed'))+
+  theme_classic() + theme(legend.position = 'bottom')
+cooperativity.plot
+```
+
+Plot role of distance at low-affinity motifs.
+
+```{r}
+distance.plot<-os_alone_or_w_1_partner.df %>%
+  dplyr::filter(ic_match_bin %in% c('q1','q5'), distance_bin %in% c('protein-range', 'nucleosome-range'), island_count==2) %>%
+  dplyr::group_by(ic_match_bin, distance_bin, treatment_numeric) %>%
+  dplyr::summarize(acc_contrib_med = median(acc_contrib),
+                   count = dplyr::n()) %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = treatment_numeric, y = acc_contrib_med, color = ic_match_bin, linetype = distance_bin))+
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'black')+
+  geom_line()+ geom_point()+
+  geom_text(aes(x = Inf, y = Inf, label = count), hjust = 1, vjust = 1)+
+  scale_color_manual(name = 'Affinity', values = c('#E8B4AF', '#A11E23'))+
+  scale_y_continuous(name = 'Median acc. contrib', limits = contrib_limits)+
+  scale_x_continuous(name = 'Treatment (h)', breaks = seq(0, 15, 3))+
+  scale_linetype_manual(values = c('solid', 'dashed'))+
+  theme_classic() + theme(legend.position = 'bottom')
+distance.plot
+```
+
+Group plots together.
+
+```{r}
+invivo_cooperativity.plot<-affinity.plot + cooperativity.plot + distance.plot
+invivo_cooperativity.plot
+ggsave(paste0(figure_filepath, '/contrib_metaplots_for_Oct4-Sox2.png'), invivo_cooperativity.plot, height = 3, width = 8)
+ggsave(paste0(figure_filepath, '/contrib_metaplots_for_Oct4-Sox2.pdf'), invivo_cooperativity.plot, height = 3, width = 8)
+```
+
+Export median cooperativity values.
+
+```{r}
+os_alone_or_w_1_partner.df %>%
+  dplyr::filter(ic_match_bin %in% c('q1','q5'), distance_bin %in% c('protein-range', 'nucleosome-range')) %>%
+  dplyr::group_by(ic_match_bin, distance_bin, treatment_numeric, island_count) %>%
+  dplyr::rename(is_motif_paired_w_sox2 = island_count) %>%
+  dplyr::mutate(is_motif_paired_w_sox2 = ifelse(is_motif_paired_w_sox2==2, T, F)) %>%
+  dplyr::summarize(acc_contrib_med = median(acc_contrib),
+                   count = dplyr::n()) %>%
+  dplyr::arrange(is_motif_paired_w_sox2, distance_bin, ic_match_bin, treatment_numeric) %>%
+  readr::write_tsv(., 'tsv/genomic/os_vs_s_cooperativity_medians_across_timepoints.tsv.gz')
+os_alone_or_w_1_partner.df %>%
+  dplyr::filter(ic_match_bin %in% c('q1','q5'), distance_bin %in% c('protein-range', 'nucleosome-range')) %>%
+  dplyr::group_by(ic_match_bin, distance_bin, treatment_numeric, island_count, sox2_ic_match_bin) %>%
+  dplyr::rename(is_motif_paired_w_sox2 = island_count) %>%
+  dplyr::mutate(is_motif_paired_w_sox2 = ifelse(is_motif_paired_w_sox2==2, T, F)) %>%
+  dplyr::summarize(acc_contrib_med = median(acc_contrib),
+                   count = dplyr::n()) %>%
+  dplyr::arrange(is_motif_paired_w_sox2, distance_bin, ic_match_bin, treatment_numeric) %>%
+  readr::write_tsv(., 'tsv/genomic/os_vs_s_cooperativity_medians_across_timepoints_with_expanded_sox2_affinity_groups.tsv.gz')
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

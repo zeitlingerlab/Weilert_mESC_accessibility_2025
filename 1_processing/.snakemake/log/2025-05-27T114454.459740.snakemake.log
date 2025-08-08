@@ -1,0 +1,142 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cluster nodes: 10
+Provided resources: disk_mb=500000
+Job stats:
+job                              count
+-----------------------------  -------
+all                                  1
+bam_to_bw                            8
+bam_to_macs2                        16
+placeholder_transition               8
+processed_fastq_to_sorted_bam        8
+raw_fastq_to_processed_fastq         8
+summarize_quality_metrics            8
+total                               57
+
+Select jobs to execute...
+
+[Tue May 27 11:45:04 2025]
+Job 321: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_raw_reads.txt
+
+Submitted job 321 with external jobid 'Submitted batch job 3018616'.
+
+[Tue May 27 11:45:04 2025]
+Job 330: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_processed_reads.txt
+
+Submitted job 330 with external jobid 'Submitted batch job 3018617'.
+
+[Tue May 27 11:45:04 2025]
+Job 339: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_processed_reads.txt
+
+Submitted job 339 with external jobid 'Submitted batch job 3018618'.
+
+[Tue May 27 11:45:04 2025]
+Job 431: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_dist_coop_mut_B_atac_2.bam
+
+Submitted job 431 with external jobid 'Submitted batch job 3018619'.
+
+[Tue May 27 11:45:04 2025]
+Job 327: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_processed_reads.txt
+
+Submitted job 327 with external jobid 'Submitted batch job 3018620'.
+
+[Tue May 27 11:45:04 2025]
+Job 336: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_processed_reads.txt
+
+Submitted job 336 with external jobid 'Submitted batch job 3018621'.
+
+[Tue May 27 11:45:04 2025]
+Job 318: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_processed_reads.txt
+
+Submitted job 318 with external jobid 'Submitted batch job 3018622'.
+
+[Tue May 27 11:45:04 2025]
+Job 324: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_raw_reads.txt
+
+Submitted job 324 with external jobid 'Submitted batch job 3018623'.
+
+[Tue May 27 11:45:04 2025]
+Job 333: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_processed_reads.txt
+
+Submitted job 333 with external jobid 'Submitted batch job 3018624'.
+
+[Tue May 27 11:45:04 2025]
+Job 432: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_dist_coop_mut_null_atac_2.bam
+
+Submitted job 432 with external jobid 'Submitted batch job 3018625'.
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 321
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018616
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 321, external: Submitted batch job 3018616, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.321.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 330
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018617
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 330, external: Submitted batch job 3018617, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.330.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 339
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018618
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 339, external: Submitted batch job 3018618, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.339.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 327
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018620
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 327, external: Submitted batch job 3018620, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.327.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 336
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018621
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 336, external: Submitted batch job 3018621, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.336.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 318
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018622
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 318, external: Submitted batch job 3018622, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.318.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 324
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018623
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 324, external: Submitted batch job 3018623, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.324.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 11:45:14 2025]
+Error in rule raw_fastq_to_processed_fastq:
+    jobid: 333
+    output: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_processed_reads.txt
+    cluster_jobid: Submitted batch job 3018624
+
+Error executing rule raw_fastq_to_processed_fastq on cluster (jobid: 333, external: Submitted batch job 3018624, jobscript: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/.snakemake/tmp.0wu_cqxu/snakejob.raw_fastq_to_processed_fastq.333.sh). For error details see the cluster log and the log files of the involved rule(s).
+[Tue May 27 12:06:45 2025]
+Finished job 431.
+1 of 57 steps (2%) done
+[Tue May 27 12:07:15 2025]
+Finished job 432.
+2 of 57 steps (4%) done
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look above for error message
+Complete log: .snakemake/log/2025-05-27T114454.459740.snakemake.log

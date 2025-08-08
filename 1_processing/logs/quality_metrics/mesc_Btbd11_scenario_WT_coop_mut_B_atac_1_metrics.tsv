@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_Btbd11_scenario_WT_coop_mut_B_atac_1	150050043	150012471	6984155	112491333	31449502	78.2	77.9	NA

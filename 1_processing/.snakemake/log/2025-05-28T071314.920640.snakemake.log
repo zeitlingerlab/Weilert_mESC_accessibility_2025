@@ -1,0 +1,563 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cluster nodes: 10
+Provided resources: disk_mb=500000
+Job stats:
+job                              count
+-----------------------------  -------
+all                                  1
+bam_to_bw                            8
+bam_to_macs2                        14
+placeholder_transition               8
+processed_fastq_to_sorted_bam        8
+raw_fastq_to_processed_fastq         8
+summarize_quality_metrics            8
+total                               55
+
+Select jobs to execute...
+
+[Wed May 28 07:13:24 2025]
+Job 321: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_raw_reads.txt
+
+Submitted job 321 with external jobid 'Submitted batch job 3019771'.
+
+[Wed May 28 07:13:24 2025]
+Job 330: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_raw_reads.txt
+
+Submitted job 330 with external jobid 'Submitted batch job 3019772'.
+
+[Wed May 28 07:13:24 2025]
+Job 339: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_processed_reads.txt
+
+Submitted job 339 with external jobid 'Submitted batch job 3019773'.
+
+[Wed May 28 07:13:24 2025]
+Job 324: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_raw_reads.txt
+
+Submitted job 324 with external jobid 'Submitted batch job 3019774'.
+
+[Wed May 28 07:13:24 2025]
+Job 327: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_raw_reads.txt
+
+Submitted job 327 with external jobid 'Submitted batch job 3019775'.
+
+[Wed May 28 07:13:24 2025]
+Job 336: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_processed_reads.txt
+
+Submitted job 336 with external jobid 'Submitted batch job 3019776'.
+
+[Wed May 28 07:13:24 2025]
+Job 428: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_2.bam
+
+Submitted job 428 with external jobid 'Submitted batch job 3019777'.
+
+[Wed May 28 07:13:24 2025]
+Job 430: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_dist_coop_mut_A_atac_2.bam
+
+Submitted job 430 with external jobid 'Submitted batch job 3019778'.
+
+[Wed May 28 07:13:24 2025]
+Job 333: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_processed_reads.txt
+
+Submitted job 333 with external jobid 'Submitted batch job 3019779'.
+
+[Wed May 28 07:13:24 2025]
+Job 318: Processing FASTQ
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_processed_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_raw_reads.txt
+
+Submitted job 318 with external jobid 'Submitted batch job 3019780'.
+[Wed May 28 07:34:05 2025]
+Finished job 428.
+1 of 55 steps (2%) done
+Select jobs to execute...
+
+[Wed May 28 07:34:05 2025]
+Job 429: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_2.bam
+
+Submitted job 429 with external jobid 'Submitted batch job 3019787'.
+[Wed May 28 07:34:45 2025]
+Finished job 324.
+2 of 55 steps (4%) done
+Select jobs to execute...
+
+[Wed May 28 07:34:45 2025]
+Job 323: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_1.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_processed_reads.txt
+
+Submitted job 323 with external jobid 'Submitted batch job 3019788'.
+[Wed May 28 07:37:25 2025]
+Finished job 321.
+3 of 55 steps (5%) done
+Select jobs to execute...
+
+[Wed May 28 07:37:25 2025]
+Job 320: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_2.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_processed_reads.txt
+
+Submitted job 320 with external jobid 'Submitted batch job 3019789'.
+[Wed May 28 07:41:06 2025]
+Finished job 336.
+4 of 55 steps (7%) done
+Select jobs to execute...
+
+[Wed May 28 07:41:06 2025]
+Job 335: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_1.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_processed_reads.txt
+
+Submitted job 335 with external jobid 'Submitted batch job 3019790'.
+[Wed May 28 07:42:46 2025]
+Finished job 330.
+5 of 55 steps (9%) done
+Select jobs to execute...
+
+[Wed May 28 07:42:46 2025]
+Job 329: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_1.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_processed_reads.txt
+
+Submitted job 329 with external jobid 'Submitted batch job 3019791'.
+[Wed May 28 07:44:26 2025]
+Finished job 327.
+6 of 55 steps (11%) done
+Select jobs to execute...
+
+[Wed May 28 07:44:26 2025]
+Job 326: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_2.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_processed_reads.txt
+
+Submitted job 326 with external jobid 'Submitted batch job 3019794'.
+[Wed May 28 07:52:06 2025]
+Finished job 339.
+7 of 55 steps (13%) done
+Select jobs to execute...
+
+[Wed May 28 07:52:06 2025]
+Job 338: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_2.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_processed_reads.txt
+
+Submitted job 338 with external jobid 'Submitted batch job 3019797'.
+[Wed May 28 07:52:46 2025]
+Finished job 430.
+8 of 55 steps (15%) done
+Select jobs to execute...
+
+[Wed May 28 07:52:46 2025]
+Job 391: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_WT_coop_WT_atac_1.bam
+
+Submitted job 391 with external jobid 'Submitted batch job 3019798'.
+[Wed May 28 07:59:27 2025]
+Finished job 333.
+9 of 55 steps (16%) done
+Select jobs to execute...
+
+[Wed May 28 07:59:27 2025]
+Job 332: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_2.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_processed_reads.txt
+
+Submitted job 332 with external jobid 'Submitted batch job 3019801'.
+[Wed May 28 07:59:47 2025]
+Finished job 429.
+10 of 55 steps (18%) done
+Select jobs to execute...
+
+[Wed May 28 07:59:47 2025]
+Job 392: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_WT_coop_WT_atac_2.bam
+
+Submitted job 392 with external jobid 'Submitted batch job 3019802'.
+[Wed May 28 08:05:27 2025]
+Finished job 318.
+11 of 55 steps (20%) done
+Select jobs to execute...
+
+[Wed May 28 08:05:27 2025]
+Job 317: Aligning FASTQ to BAM
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_1.bam; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_processed_reads.txt
+
+Submitted job 317 with external jobid 'Submitted batch job 3019805'.
+[Wed May 28 08:27:09 2025]
+Finished job 391.
+12 of 55 steps (22%) done
+Select jobs to execute...
+
+[Wed May 28 08:27:09 2025]
+Job 423: Running MACS2...
+Reason: Updated input files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_3.bam
+
+Submitted job 423 with external jobid 'Submitted batch job 3019815'.
+[Wed May 28 08:30:49 2025]
+Finished job 323.
+13 of 55 steps (24%) done
+Select jobs to execute...
+
+[Wed May 28 08:30:49 2025]
+Job 322: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_1.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_1.bam
+
+Submitted job 322 with external jobid 'Submitted batch job 3019817'.
+[Wed May 28 08:49:30 2025]
+Finished job 320.
+14 of 55 steps (25%) done
+Select jobs to execute...
+
+[Wed May 28 08:49:30 2025]
+Job 319: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_2.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_2.bam
+
+Submitted job 319 with external jobid 'Submitted batch job 3019825'.
+[Wed May 28 08:49:50 2025]
+Finished job 392.
+15 of 55 steps (27%) done
+Select jobs to execute...
+
+[Wed May 28 08:49:50 2025]
+Job 434: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_2_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_2.bam
+
+Submitted job 434 with external jobid 'Submitted batch job 3019826'.
+[Wed May 28 08:53:30 2025]
+Finished job 335.
+16 of 55 steps (29%) done
+Select jobs to execute...
+
+[Wed May 28 08:53:30 2025]
+Job 334: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_1.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_1.bam
+
+Submitted job 334 with external jobid 'Submitted batch job 3019828'.
+[Wed May 28 09:00:11 2025]
+Finished job 329.
+17 of 55 steps (31%) done
+Select jobs to execute...
+
+[Wed May 28 09:00:11 2025]
+Job 328: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_1.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_1.bam
+
+Submitted job 328 with external jobid 'Submitted batch job 3019833'.
+[Wed May 28 09:03:51 2025]
+Finished job 423.
+18 of 55 steps (33%) done
+Select jobs to execute...
+
+[Wed May 28 09:03:51 2025]
+Job 437: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_1_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_1.bam
+
+Submitted job 437 with external jobid 'Submitted batch job 3019836'.
+[Wed May 28 09:06:31 2025]
+Finished job 326.
+19 of 55 steps (35%) done
+Select jobs to execute...
+
+[Wed May 28 09:06:31 2025]
+Job 325: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_2.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_2.bam
+
+Submitted job 325 with external jobid 'Submitted batch job 3019837'.
+[Wed May 28 09:10:11 2025]
+Finished job 434.
+20 of 55 steps (36%) done
+Select jobs to execute...
+
+[Wed May 28 09:10:11 2025]
+Job 436: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_2_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_2.bam
+
+Submitted job 436 with external jobid 'Submitted batch job 3019839'.
+[Wed May 28 09:19:52 2025]
+Finished job 322.
+21 of 55 steps (38%) done
+Select jobs to execute...
+
+[Wed May 28 09:19:52 2025]
+Job 439: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_1_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_1.bam
+
+Submitted job 439 with external jobid 'Submitted batch job 3019844'.
+[Wed May 28 09:27:33 2025]
+Finished job 437.
+22 of 55 steps (40%) done
+Select jobs to execute...
+
+[Wed May 28 09:27:33 2025]
+Job 435: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_1_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoverystart_15h_1.bam
+
+Submitted job 435 with external jobid 'Submitted batch job 3019849'.
+[Wed May 28 09:31:13 2025]
+Finished job 332.
+23 of 55 steps (42%) done
+Select jobs to execute...
+
+[Wed May 28 09:31:13 2025]
+Job 331: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_2.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_2.bam
+
+Submitted job 331 with external jobid 'Submitted batch job 3019850'.
+[Wed May 28 09:31:13 2025]
+Finished job 319.
+24 of 55 steps (44%) done
+Select jobs to execute...
+
+[Wed May 28 09:31:13 2025]
+Job 438: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_2_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_4.5h_2.bam
+
+Submitted job 438 with external jobid 'Submitted batch job 3019851'.
+[Wed May 28 09:35:53 2025]
+Finished job 338.
+25 of 55 steps (45%) done
+Select jobs to execute...
+
+[Wed May 28 09:35:53 2025]
+Job 337: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_2.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_2.bam
+
+Submitted job 337 with external jobid 'Submitted batch job 3019856'.
+[Wed May 28 09:37:33 2025]
+Finished job 439.
+26 of 55 steps (47%) done
+Select jobs to execute...
+
+[Wed May 28 09:37:33 2025]
+Job 440: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_2_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recovery_9h_2.bam
+
+Submitted job 440 with external jobid 'Submitted batch job 3019859'.
+[Wed May 28 09:38:13 2025]
+Finished job 436.
+27 of 55 steps (49%) done
+Select jobs to execute...
+
+[Wed May 28 09:38:13 2025]
+Job 630: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoveryctl_0h_2_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_2.bw
+
+Submitted job 630 with external jobid 'Submitted batch job 3019862'.
+[Wed May 28 09:39:53 2025]
+Finished job 334.
+28 of 55 steps (51%) done
+Select jobs to execute...
+
+[Wed May 28 09:39:53 2025]
+Job 640: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_9h_1_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_1.bw
+
+Submitted job 640 with external jobid 'Submitted batch job 3019867'.
+[Wed May 28 09:41:34 2025]
+Finished job 435.
+29 of 55 steps (53%) done
+Select jobs to execute...
+
+[Wed May 28 09:41:34 2025]
+Job 632: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoverystart_15h_1_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_1.bw
+
+Submitted job 632 with external jobid 'Submitted batch job 3019869'.
+[Wed May 28 09:44:14 2025]
+Finished job 438.
+30 of 55 steps (55%) done
+[Wed May 28 09:44:14 2025]
+Finished job 630.
+31 of 55 steps (56%) done
+Select jobs to execute...
+
+[Wed May 28 09:44:14 2025]
+Job 629: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_2_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoveryctl_0h_2_touch.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_2_raw_reads.txt
+
+Submitted job 629 with external jobid 'Submitted batch job 3019870'.
+[Wed May 28 09:44:14 2025]
+Finished job 640.
+32 of 55 steps (58%) done
+[Wed May 28 09:44:14 2025]
+Finished job 632.
+33 of 55 steps (60%) done
+Select jobs to execute...
+
+[Wed May 28 09:44:14 2025]
+Job 639: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_1_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_9h_1_touch.txt
+
+Submitted job 639 with external jobid 'Submitted batch job 3019871'.
+
+[Wed May 28 09:44:14 2025]
+Job 631: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_1_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoverystart_15h_1_touch.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_1_raw_reads.txt
+
+Submitted job 631 with external jobid 'Submitted batch job 3019872'.
+[Wed May 28 09:45:54 2025]
+Finished job 328.
+34 of 55 steps (62%) done
+Select jobs to execute...
+
+[Wed May 28 09:45:54 2025]
+Job 636: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_4.5h_1_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_1.bw
+
+Submitted job 636 with external jobid 'Submitted batch job 3019875'.
+[Wed May 28 09:45:54 2025]
+Finished job 629.
+35 of 55 steps (64%) done
+[Wed May 28 09:45:54 2025]
+Finished job 639.
+36 of 55 steps (65%) done
+Waiting at most 120 seconds for missing files.
+[Wed May 28 09:46:54 2025]
+Finished job 636.
+37 of 55 steps (67%) done
+Select jobs to execute...
+
+[Wed May 28 09:46:54 2025]
+Job 635: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_1_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_4.5h_1_touch.txt
+
+Submitted job 635 with external jobid 'Submitted batch job 3019876'.
+[Wed May 28 09:46:54 2025]
+Finished job 631.
+38 of 55 steps (69%) done
+[Wed May 28 09:48:04 2025]
+Finished job 635.
+39 of 55 steps (71%) done
+[Wed May 28 09:50:34 2025]
+Finished job 440.
+40 of 55 steps (73%) done
+[Wed May 28 10:03:05 2025]
+Finished job 317.
+41 of 55 steps (75%) done
+Select jobs to execute...
+
+[Wed May 28 10:03:05 2025]
+Job 316: Computing coverage of .bam file...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_1.bw; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_1.bam
+
+Submitted job 316 with external jobid 'Submitted batch job 3019986'.
+
+[Wed May 28 10:03:05 2025]
+Job 433: Running MACS2...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_1_peaks.narrowPeak; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/GSE174774_mesc_atac_recoveryctl_0h_1.bam
+
+Submitted job 433 with external jobid 'Submitted batch job 3019987'.
+[Wed May 28 10:03:05 2025]
+Finished job 325.
+42 of 55 steps (76%) done
+Select jobs to execute...
+
+[Wed May 28 10:03:05 2025]
+Job 634: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoverystart_15h_2_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_2.bw
+
+Submitted job 634 with external jobid 'Submitted batch job 3019988'.
+Waiting at most 120 seconds for missing files.
+[Wed May 28 10:04:07 2025]
+Finished job 634.
+43 of 55 steps (78%) done
+Select jobs to execute...
+
+[Wed May 28 10:04:07 2025]
+Job 633: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_2_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoverystart_15h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoverystart_15h_2_touch.txt
+
+Submitted job 633 with external jobid 'Submitted batch job 3019989'.
+[Wed May 28 10:05:16 2025]
+Finished job 633.
+44 of 55 steps (80%) done
+[Wed May 28 10:10:46 2025]
+Finished job 433.
+45 of 55 steps (82%) done
+[Wed May 28 10:12:16 2025]
+Finished job 331.
+46 of 55 steps (84%) done
+Select jobs to execute...
+
+[Wed May 28 10:12:16 2025]
+Job 638: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_4.5h_2_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_2.bw
+
+Submitted job 638 with external jobid 'Submitted batch job 3019998'.
+Waiting at most 120 seconds for missing files.
+[Wed May 28 10:13:16 2025]
+Finished job 638.
+47 of 55 steps (85%) done
+Select jobs to execute...
+
+[Wed May 28 10:13:16 2025]
+Job 637: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_2_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_4.5h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_4.5h_2_touch.txt
+
+Submitted job 637 with external jobid 'Submitted batch job 3020000'.
+[Wed May 28 10:14:26 2025]
+Finished job 637.
+48 of 55 steps (87%) done
+[Wed May 28 10:27:57 2025]
+Finished job 337.
+49 of 55 steps (89%) done
+Select jobs to execute...
+
+[Wed May 28 10:27:57 2025]
+Job 642: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_9h_2_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_2.bw
+
+Submitted job 642 with external jobid 'Submitted batch job 3020023'.
+Waiting at most 120 seconds for missing files.
+[Wed May 28 10:28:58 2025]
+Finished job 642.
+50 of 55 steps (91%) done
+Select jobs to execute...
+
+[Wed May 28 10:28:59 2025]
+Job 641: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_2_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recovery_9h_2_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recovery_9h_2_touch.txt
+
+Submitted job 641 with external jobid 'Submitted batch job 3020025'.
+[Wed May 28 10:31:08 2025]
+Finished job 641.
+51 of 55 steps (93%) done
+[Wed May 28 10:38:39 2025]
+Finished job 316.
+52 of 55 steps (95%) done
+Select jobs to execute...
+
+[Wed May 28 10:38:39 2025]
+Job 628: Transitioning to uploading metrics...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoveryctl_0h_1_touch.txt; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_1.bw
+
+Submitted job 628 with external jobid 'Submitted batch job 3020033'.
+Waiting at most 120 seconds for missing files.
+[Wed May 28 10:39:39 2025]
+Finished job 628.
+53 of 55 steps (96%) done
+Select jobs to execute...
+
+[Wed May 28 10:39:39 2025]
+Job 627: Summarizing quality metrics and performing database upload...
+Reason: Missing output files: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_1_metrics.tsv; Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/GSE174774_mesc_atac_recoveryctl_0h_1_raw_reads.txt, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/GSE174774_mesc_atac_recoveryctl_0h_1_touch.txt
+
+Submitted job 627 with external jobid 'Submitted batch job 3020042'.
+[Wed May 28 10:40:49 2025]
+Finished job 627.
+54 of 55 steps (98%) done
+Select jobs to execute...
+
+[Wed May 28 10:40:50 2025]
+localrule all:
+    input: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_ctcf_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_ctcf_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_ctcf_nexus_6_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_4_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_6_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_7_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_esrrb_nexus_8_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_klf4_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_klf4_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_klf4_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_klf4_nexus_4_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_klf4_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_nanog_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_nanog_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_nanog_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_nanog_nexus_4_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_nanog_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_native_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_native_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_native_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_4_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_oct4_nexus_6_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_sox2_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_sox2_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_sox2_nexus_4_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_sox2_nexus_6_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_zic3_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_zic3_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_0h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_0h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_3h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_3h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_6h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_6h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_9h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_9h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_12h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_12h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_15h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_15h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_0h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_0h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_3h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_3h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_6h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_6h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_9h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_9h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_12h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_12h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_15h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_ttseq_15h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_WT_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_WT_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_A_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_A_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_B_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_B_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_null_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_mut_null_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_B_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_B_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_A_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_A_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_WT_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_WT_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_null_atac_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_enh_coop_mut_null_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_R1_sox2_nexus_15_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_R1_sox2_nexus_16_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_R1_klf4_nexus_5_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_R1_klf4_nexus_6_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_1_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_2_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_3_positive.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_A_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_B_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_null_atac_3.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_A_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_B_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/mesc_Btbd11_scenario_dist_coop_mut_null_atac_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_ctcf_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_ctcf_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_ctcf_nexus_6_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_4_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_6_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_7_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_esrrb_nexus_8_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_klf4_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_klf4_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_klf4_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_klf4_nexus_4_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_klf4_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_nanog_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_nanog_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_nanog_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_nanog_nexus_4_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_nanog_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_native_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_native_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_native_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_4_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_oct4_nexus_6_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_sox2_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_sox2_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_sox2_nexus_4_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_sox2_nexus_6_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_zic3_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_zic3_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_0h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_0h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_3h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_3h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_6h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_6h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_9h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_9h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_12h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_12h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_15h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_15h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_A_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_A_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_B_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_B_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_null_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_mut_null_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_B_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_B_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_A_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_A_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_WT_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_WT_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_null_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_enh_coop_mut_null_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_R1_sox2_nexus_15_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_R1_sox2_nexus_16_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_R1_klf4_nexus_5_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_R1_klf4_nexus_6_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_A_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_B_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_null_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_A_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_B_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_null_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_ctcf_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_ctcf_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_ctcf_nexus_6_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_4_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_6_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_7_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_esrrb_nexus_8_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_klf4_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_klf4_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_klf4_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_klf4_nexus_4_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_klf4_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_nanog_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_nanog_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_nanog_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_nanog_nexus_4_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_nanog_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_native_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_native_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_native_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_4_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_oct4_nexus_6_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_sox2_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_sox2_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_sox2_nexus_4_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_sox2_nexus_6_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_zic3_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_zic3_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_0h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_0h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_3h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_3h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_6h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_6h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_9h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_9h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_12h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_12h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_15h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_15h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_WT_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_WT_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_A_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_A_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_B_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_B_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_null_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_mut_null_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_B_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_B_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_A_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_A_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_WT_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_WT_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_null_atac_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_enh_coop_mut_null_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_R1_sox2_nexus_15_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_R1_sox2_nexus_16_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_R1_klf4_nexus_5_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_R1_klf4_nexus_6_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_A_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_B_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_null_atac_3_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_A_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_B_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/mesc_Btbd11_scenario_dist_coop_mut_null_atac_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_2_metrics.tsv
+    jobid: 0
+    reason: Input files updated by another job: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_atac_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_3_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_9h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoveryctl_0h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_A_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_dist_coop_mut_AB_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/mesc_Btbd11_scenario_WT_coop_WT_distcontrol_atac_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_4.5h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoverystart_15h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_4.5h_2_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recovery_9h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoveryctl_0h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_1_peaks.narrowPeak, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recoveryctl_0h_1.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_recovery_9h_2.bw, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recovery_4.5h_1_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/GSE174774_mesc_atac_recoverystart_15h_2_metrics.tsv, /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/GSE174774_mesc_atac_recoverystart_15h_2_peaks.narrowPeak
+    resources: mem_mb=500000, mem_mib=476838, disk_mb=500000, disk_mib=476838, tmpdir=/tmp, cpus_per_task=16, runtime=7000
+
+[Wed May 28 10:40:50 2025]
+Finished job 0.
+55 of 55 steps (100%) done
+Complete log: .snakemake/log/2025-05-28T071314.920640.snakemake.log

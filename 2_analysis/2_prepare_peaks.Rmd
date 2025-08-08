@@ -1,0 +1,422 @@
+---
+title: 'Peak curation for model training and analysis'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this .Rmd is to prepare and consolidate all peaks for deep learning training and downstream analysis. We will need to pool coverage, assess peak reproducibility, process reproducible peaks, and assess quality metrics of final samples and their respective regions for downstream work.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-'figures/2_prepare_peaks'
+options(knitr.figure_dir=figure_filepath)
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+
+#Options and configurations
+set.seed(seed = 10)
+output_seqlen<-1000
+low_count_threshold = .25
+dir.create('narrowpeak', showWarnings = F)
+
+#Custom variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+blacklist.gr<-rtracklayer::import('bed/mm10.blacklist.bed')
+atac.path<-'bw/mesc_native_atac_cutsites_combined.bw'
+atac_reps.path<-Sys.glob('bw/mesc_native_atac_*_cutsites.bw')
+xiong_reps.path<-Sys.glob('bw/GSE174774_mesc_atac_*h_[1|2].bw')
+```
+
+# Export enhancers curated in Avsec 2021 to .bed
+
+```{r}
+library(readxl)
+enhancers.gr<-readxl::read_xlsx('../../public/published/Avsec_2021_et_al/mm10_enhancer_regions.xlsx') %>%
+  dplyr::filter(!is.na(mm10_coordinates_curated)) %>%
+  tidyr::separate(col = mm10_coordinates_curated, into = c('chrom','start','end')) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+rtracklayer::export(enhancers.gr, 'bed/mm10_enhancer_regions.bed')
+```
+
+# Define peaks
+
+Manually select the reproducible peak sets that were generated in (1_) that produced the highest number of regions. Avsec 2021 took this approach for region selection and it works pretty well.
+
+```{r}
+system('wc -l idr/*')
+```
+
+```{r}
+peaks.list<-list(mesc_atac_peaks = 'idr/mesc_native_atac_2_vs_3_idr.txt',
+                 mesc_zic3_nexus_peaks = 'idr/mesc_zic3_nexus_1_vs_2_idr.txt',
+                 mesc_oct4_nexus_peaks = 'idr/mesc_oct4_nexus_1_vs_2_idr.txt',
+                 mesc_sox2_nexus_peaks = 'idr/mesc_sox2_nexus_2_vs_6_idr.txt',
+                 mesc_klf4_nexus_peaks = 'idr/mesc_klf4_nexus_1_vs_3_idr.txt',
+                 mesc_nanog_nexus_peaks = 'idr/mesc_nanog_nexus_1_vs_4_idr.txt'
+)
+```
+
+# Filter .narrowpeak that you will be using
+
+Here, we will be:
+
++ removing peaks on chromosome boundaries
++ removing peaks with underlying sequences containing Ns
++ removing peaks from chrY and chrM
++ converting to .narrowPeak format while centering the coordinates around the 'summit' column (col 9).
+
+```{r}
+peaks.gr.list<-lapply(names(peaks.list), function(x){
+  if(grepl('.txt', peaks.list[[x]])){
+    df<-readr::read_tsv(peaks.list[[x]], col_names = c('chrom','start','end','name','score','strand',
+                                                       'signalValue', 'pValue', 'qValue', 'peak',
+                                                       'localIDR', 'globalIDR',
+                                                       'rep1start','rep1end','rep1signal','rep1summit',
+                                                       'rep2start','rep2end','rep2signal','rep2summit'))
+  } else{
+    df<-readr::read_tsv(peaks.list[[x]], col_names = c('chrom','start','end','name','score','strand',
+                                                       'signalValue', 'pValue', 'qValue', 'peak'))
+  }
+  
+  gr<-df %>%
+    makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+    plyranges::filter(!overlapsAny(., blacklist.gr, ignore.strand = T)) %>% #remove blacklisted regions
+    check_chromosome_boundaries(., 5000, bsgenome) %>%
+    plyranges::select(-seqlength_filler, -end_distance, -start_distance) %>%
+    keepStandardChromosomes(x = ., pruning.mode = 'coarse') %>%
+    plyranges::filter(!(seqnames %in% c('chrY', 'chrM'))) %>%
+    
+    plyranges::mutate(start = start + peak) %>%
+    GenomicRanges::resize(., width = 1, fix = 'start') %>%
+    GenomicRanges::resize(., width = output_seqlen, fix = 'center') %>%
+    
+    plyranges::mutate(peak = floor(output_seqlen/2),  #convert to narrowpeak, broadpeak doesn't have the summit feature
+                      seq = getSeq(bsgenome, ., as.character=T)) %>%  
+    plyranges::arrange(desc(pValue)) %>% 
+    plyranges::filter(!grepl('N', seq)) %>% #Filter out all regions with N's in them
+    plyranges::select(-seq)
+  
+  #Write GRanges
+  plyranges::write_narrowpeaks(x = gr, file = paste0('narrowpeak/', tolower(x), '.narrowPeak'))
+  rtracklayer::export(object = gr, con = paste0('narrowpeak/', tolower(x), '.bed'))
+  return(gr)
+})
+```
+
+# Non-peak regions
+
+Next, we need to define and characterize "non-peak" regions for each of our planned training sets.
+
+## Bias model for ATAC-seq
+
+In order to train a bias model for correcting the sequence-embedded bias in ATAC-seq, we need to find enough regions that accommodate the following criteria:
+
++ enough to train a BPNet architecture model to learn Tn5 (general rule of thumb is >30K regions)
++ is not an ATAC-seq peak
++ has counts that are lower than the minimum number across ATAC-seq peaks
+
+```{r}
+collect_nonpeak_regions<-function(peaks.gr, additional_filter_set.gr = NA, step_gap = 50000, scale_factor = 4){
+  
+  #Sort peaks.
+  peaks.gr<-BiocGenerics::sort(peaks.gr, ignore.strand = T)
+  
+  #Identify genome
+  genome.gr<-GRanges(seqnames(bsgenome), IRanges(1, seqlengths(bsgenome)), strand = '*') %>%
+    keepStandardChromosomes(pruning.mode = 'coarse')
+  
+  #Identify genome gaps as metadata
+  peaks.gr$flank_down<-end(peaks.gr) + 1
+  peaks.gr$flank_up<-start(peaks.gr) - 1
+  peaks.gr$next_seqname<-c(seqnames(peaks.gr)[2:length(peaks.gr)] %>% as.character(), NA)
+  peaks.gr$next_flank_up<-c(peaks.gr$flank_up[2:length(peaks.gr)], NA)
+  
+  #Filter out weird metadata
+  collect_gaps.gr<-peaks.gr %>%
+    plyranges::filter(start > 1, 
+                      next_seqname == seqnames,
+                      flank_down<next_flank_up) %>%
+    check_chromosome_boundaries(gr = ., resize_boundary = output_seqlen, genome = bsgenome)
+  
+  #Use gap boundaries to define new GRanges
+  non_peaks.gr<-GRanges(seqnames(collect_gaps.gr), 
+                        IRanges(start = collect_gaps.gr$flank_down, 
+                                end = collect_gaps.gr$next_flank_up), 
+                        strand = '*') %>%
+    plyranges::filter(width >= output_seqlen) %>%
+    #Now, tile the null regions until we have enough candidates (some null regions are >2*input_seqlen)
+    GenomicRanges::slidingWindows(., width=step_gap, step=step_gap) %>%
+    GenomicRanges::resize(., width = output_seqlen*scale_factor, fix = 'center') %>% #magic number is just to expand data enough to capture most BPNet architecture input length requirements
+    as('GRangesList') %>%
+    unlist() %>%
+    check_chromosome_boundaries(., resize_boundary = output_seqlen, genome = bsgenome)
+  
+  #Filter the nonpeak regions additionally if required
+  if(!all(is.na(additional_filter_set.gr))){
+    non_peaks.gr<-non_peaks.gr %>%
+      plyranges::filter(!overlapsAny(., additional_filter_set.gr, ignore.strand = T))
+  }  
+  
+  #Sample nonpeaks for the desired ratio
+  non_peaks.gr<-non_peaks.gr %>%
+    plyranges::mutate(name = 'non_peak') %>%
+    resize(., width = output_seqlen, fix = 'center') %>%
+    plyranges::mutate(signalValue = 0, pValue= 0, qValue=0, peak = floor(output_seqlen/2),
+                      seq = getSeq(bsgenome, ., as.character=T)) %>%  
+    plyranges::filter(!grepl('N', seq)) %>% #Filter out all regions with N's in them
+    plyranges::select(-seq) %>%
+    GenomicRanges::sort(.)
+  return(non_peaks.gr)
+}
+```
+
+Apply this function to fulfill all but 1 criteria.
+
+```{r}
+non_peaks.gr<-collect_nonpeak_regions(peaks.gr = rtracklayer::import('narrowpeak/mesc_atac_peaks.narrowPeak'), 
+                                      additional_filter_set.gr = c(peaks.gr.list %>% as('GRangesList') %>% unlist(), blacklist.gr),
+                                      step_gap = 10000)
+
+#Get minimum read values for ATAC-seq peaks.
+atac_peaks_w_signal.gr<-rtracklayer::import('narrowpeak/mesc_atac_peaks.narrowPeak') %>%
+  plyranges::mutate(atac_signal = regionSums(resize(., width = 1000, fix = 'center'),
+                                             atac.path))
+max_non_peak_reads<-min(atac_peaks_w_signal.gr$atac_signal)
+max_non_peak_reads
+
+non_peaks_low_reads.gr<-non_peaks.gr %>%
+  plyranges::mutate(atac_signal = regionSums(resize(., width = 1150, fix = 'center'), #generally the size of the input window
+                                             atac.path)) %>%
+  plyranges::filter(atac_signal<=max_non_peak_reads*low_count_threshold) %>%
+  plyranges::mutate(seq = getSeq(bsgenome, ., as.character=T)) %>%  
+  plyranges::filter(!grepl('N', seq)) %>% #Filter out all regions with N's in them
+  plyranges::select(-seq)
+
+length(non_peaks_low_reads.gr)  
+```
+
+Here, we have returned sufficient numbers of peaks in order to train a bias model.
+
+```{r}
+plyranges::write_narrowpeaks(non_peaks_low_reads.gr, 'narrowpeak/mesc_atac_non_peaks.narrowPeak')
+```
+
+## ATAC-seq and ChIP-nexus models
+
+In general, deep learning benefits from a balanced training set where there are positive and negative classes of training data that represent the "haves" and "have nots" of information. Usually, this is characterized in genomics data with "peaks" and "non-peaks" and the training data should be made of a mix of them.
+
+Okay, so in the original Avsec et al 2021 paper, we circumvented this by combining the peak sets of 4 different TFs. Some of these peaks across TFs were overlapping, some were not. Because we trained on the CONCATENATED, UNREDUCED peak set of these 4 TFs, the logic was that the negative training class is pre-embedded into this peak set (i.e. Klf4 will be trained on Klf4 peaks and on OSN peaks that don't contain Klf4, hence Klf4 will have a more balanced set of peaks and non-peaks for that task in the model). 
+
+We are going to use that same logic here for the multi-task model training of ChIP-nexus data on the 5 TFs (Oct4, Sox2, Nanog, Klf4, and Zic3). However, we will ALSO use that logic on the ATAC-seq data by training the ATAC-seq model on all the ChIP-nexus peak regions concatenated together. This means that the binding and accessibility model will be trained on the same peak sets, giving them the same sequence vision and making the results more balanced and comparable in downstream analysis.
+
+In order to justify this approach, we need to establish that the binding model peak set contains the full spectrum of highly accessible peaks -> non accessibile peaks. We will visualize this below as a validation check.
+
+```{r}
+#TF-specific peaks
+tf_peaks.gr<-Sys.glob('narrowpeak/mesc_*_nexus_peaks.narrowPeak') %>%
+  lapply(., rtracklayer::import) %>% as('GRangesList') %>% unlist() %>%
+  plyranges::mutate(atac_signal = regionSums(resize(., width = 1000, fix = 'center'),
+                                             atac.path))
+
+tf_peaks.gr$atac_signal %>% summary
+
+#ATAC-specific peaks
+atac_peaks.gr<-rtracklayer::import('narrowpeak/mesc_atac_peaks.narrowPeak') %>%
+  plyranges::mutate(atac_signal = regionSums(resize(., width = 1000, fix = 'center'),
+                                             atac.path))
+atac_peaks.gr$atac_signal %>% summary
+
+#Non-peaks
+non_peaks.gr<-non_peaks.gr %>%
+  plyranges::mutate(atac_signal = regionSums(resize(., width = 1000, fix = 'center'),
+                                             atac.path))
+non_peaks.gr$atac_signal %>% summary
+```
+
+Here we can see that there is a large distribution of places with "grassy" cutsites. Let's sample a distribution of randomly sampled regions in the genome to make sure that the bottom quartile is not still over-represented with accessibility signal.
+
+```{r}
+signals.df<-rbind(data.frame(signal = tf_peaks.gr$atac_signal,
+                             type = 'tf peaks'),
+                  data.frame(signal = non_peaks.gr$atac_signal,
+                             type = 'atac non-peaks'),
+                  data.frame(signal = atac_peaks.gr$atac_signal,
+                             type = 'atac peaks'))
+
+density.plot<-ggplot(signals.df, aes(x = log(signal), fill = type))+
+  geom_density(position = 'identity', alpha = .2)+
+  geom_vline(xintercept = log(max_non_peak_reads*low_count_threshold), linetype = 'dotted')+
+  scale_x_continuous(name = 'ATAC-seq pooled signal (log)')+
+  scale_y_continuous(name = 'Frequency density')+
+  scale_fill_manual(name = 'Peak type', values = c('gray', '#A01D22', '#3C3F96'))+
+  theme_classic()
+density.plot
+ggsave(paste0(figure_filepath, '/atac_read_density_distributions.pdf'), density.plot, height = 3, width = 6)
+ggsave(paste0(figure_filepath, '/atac_read_density_distributions.png'), density.plot, height = 3, width = 6)
+```
+
+It appears like ~10%> of peak read distributions overlap. This is higher than the overlap with ATAC-seq peaks. There isn't an even distribution match, but that is to be expected as TF binding and accessibility is intrinsically linked. Here, we have validated that a randomly sampled region set does share features with TF peaks and that there are TF peaks without strong accessibility feature. This should give us a balanced enough set to train on TF peaks for our ATAC-seq model.
+
+# Reproducibility across ATAC-seq samples
+
+## Experimentally collected replicate reproducibility
+
+Here, we want to generate plots which exhibit reproducibility between ATAC-seq samples. First, check sequencing depth, FrIP.
+
+```{r}
+atac_regions.gr<-rtracklayer::import('narrowpeak/mesc_atac_peaks.narrowPeak')
+
+#Plot the sequencing depth imbalance.
+atac_reads.df<-mclapply(atac_reps.path, function(x){
+  total_reads<-sum(rtracklayer::import(x)$score)
+  reads_in_peaks<-regionSums(atac_regions.gr, x) %>% sum(.)
+  return(data.frame(total_reads = total_reads, reads_in_peaks = reads_in_peaks))
+}, mc.cores = 3) %>% rbindlist(., idcol = 'rep') %>%
+  dplyr::mutate(frip = round(reads_in_peaks/total_reads, 2))
+atac_reads.df
+```
+
+Show that coverage is comparable
+
+```{r}
+rep_comparison.list<-list(c(1,2), c(1, 3), c(2, 3))
+
+#Plot the sequencing depth imbalance.
+plot.list<-mclapply(rep_comparison.list, function(x){
+  repa<-atac_reps.path[x[1]]
+  repb<-atac_reps.path[x[2]]
+  atac_regions.gr$repa<-regionSums(atac_regions.gr, repa)
+  atac_regions.gr$repb<-regionSums(atac_regions.gr, repb)
+  atac_regions.df<-as.data.frame(atac_regions.gr)
+  
+  plot<-ggplot(atac_regions.df, aes(x = log(repa), y = log(repb)))+
+    ggrastr::geom_point_rast(size = .2)+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_x_continuous(name = paste0('rep ', x[1], ' log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep ', x[2], ' log-reads across peaks'))+
+    theme_classic()
+  
+  return(plot)
+}, mc.cores = 3)
+
+rep.plot<-wrap_plots(plot.list) + plot_layout(nrow = 1)
+ggsave(paste0(figure_filepath, '/atac_rep_comparison.png'), rep.plot, height = 3, width = 9)
+ggsave(paste0(figure_filepath, '/atac_rep_comparison.pdf'), rep.plot, height = 3, width = 9)
+```
+
+## Xiong et al 2022 ATAC-seq replicate sets
+
+Plot the sequencing depth and FRiP scores of already published ATAC-seq Oct4 mutant data to confirm data is consistent and high quality.
+
+```{r}
+xiong_summary.df<-mclapply(xiong_reps.path, function(x){
+  reads.gr<-readRDS(paste0('../1_processing/rdata/', gsub('.bw', '.granges.rds',  basename(x))))
+  peaks.gr<-rtracklayer::import(paste0('../1_processing/peaks/', gsub('.bw', '_peaks.narrowPeak',  basename(x)))) %>% resize(., 1000, 'center')
+  total_reads<-length(reads.gr)
+  reads_in_peaks<-length(subsetByOverlaps(reads.gr, peaks.gr, ignore.strand = T))
+  return(data.frame(total_reads = total_reads, reads_in_peaks = reads_in_peaks, name = basename(x)))
+}, mc.cores = 6) %>% rbindlist(.) %>%
+  dplyr::mutate(frip = round(reads_in_peaks/total_reads, 2)) %>%
+  tidyr::separate(col = name, into = c(NA, NA, NA, 'timepoint', 'rep'), sep = '_') %>%
+  dplyr::mutate(rep = rep %>% gsub('.bw', '', .))
+xiong_summary.df$timepoint<-xiong_summary.df$timepoint %>% factor(., levels = paste0(seq(0, 15), 'h'))
+xiong_summary.plot<-
+  (ggplot(xiong_summary.df, aes(x = timepoint, fill = rep, y = total_reads))+
+     geom_bar(stat = 'identity', position = 'dodge', color = 'black', size = .5)+
+     scale_x_discrete(name = 'timepoint (h)')+
+     scale_fill_manual(values = c('#88419d', '#e0ecf4'), name = 'replicate')+
+     theme_classic()) + 
+  (ggplot(xiong_summary.df, aes(x = timepoint, fill = rep, y = frip))+
+     geom_bar(stat = 'identity', position = 'dodge', color = 'black', size = .5)+
+     scale_x_discrete(name = 'timepoint (h)')+
+     scale_fill_manual(values = c('#88419d', '#e0ecf4'), name = 'replicate')+
+     theme_classic()) + plot_layout(ncol = 1)
+xiong_summary.plot
+ggsave(paste0(figure_filepath, '/xiong_rep_comparison.png'), xiong_summary.plot, height = 6, width = 6)
+ggsave(paste0(figure_filepath, '/xiong_rep_comparison.pdf'), xiong_summary.plot, height = 6, width = 6)
+```
+
+Plot replicate comparisons on reads:
+
+```{r}
+#Plot the sequencing depth imbalance.
+plot.list<-mclapply(seq(0, 15, 3), function(x){
+  reps<-grep(pattern = paste0(x, 'h'), x = xiong_reps.path, value = T)
+  repa<-reps[1]
+  repb<-reps[2]
+  atac_regions.gr$repa<-regionSums(atac_regions.gr, repa)
+  atac_regions.gr$repb<-regionSums(atac_regions.gr, repb)
+  xiong_regions.df<-as.data.frame(atac_regions.gr)
+  
+  plot<-ggplot(xiong_regions.df, aes(x = log(repa), y = log(repb)))+
+    ggrastr::geom_point_rast(size = .2)+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    scale_x_continuous(name = paste0('rep 1 log-reads across peaks'))+
+    scale_y_continuous(name = paste0('rep 2 log-reads across peaks'))+
+    ggtitle(paste0(x, 'h'))+
+    theme_classic()
+  return(plot)
+}, mc.cores = 3)
+
+rep.plot<-wrap_plots(plot.list) + plot_layout(nrow = 3, ncol = 2)
+ggsave(paste0(figure_filepath, '/xiong_rep_reads.png'), rep.plot, height = 6, width = 4)
+ggsave(paste0(figure_filepath, '/xiong_rep_reads.pdf'), rep.plot, height = 6, width = 4)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

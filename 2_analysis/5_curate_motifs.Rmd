@@ -1,0 +1,1357 @@
+---
+title: 'Curation of motifs'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this analysis is to:
+
+1. Showcase motifs found by ChromBPNet and BPNet.
+2. Collect and filter motifs found by ChromBPNet and BPNet.
+3. Merge ChromBPNet and BPNet motifs into sets for downstream analysis.
+4. Visualize motif summaries and representations.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/5_curate_motifs"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+threads <- 5
+dir.create('bed/mapped_motifs', recursive = T, showWarnings = F)
+dir.create('tsv/mapped_motifs', recursive = T, showWarnings = F)
+dir.create('rdata/mapped_motifs', recursive = T, showWarnings = F)
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+
+#model information
+tasks<-c('oct4', 'sox2', 'nanog', 'klf4', 'zic3')
+peaks.path<-'bed/bpreveal/bpnet_osknz_fold1_all.bed'
+acc_counts_contrib.bw<-'shap/atac_wt_fold1_atac_counts.bw'
+motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Oct4' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'klf4', 'Zic3' = 'zic3', 'Nanog' = 'nanog')
+output_length <- 1000
+
+#experimental data information
+repeats.path<-'/n/projects/mw2098/genomes/mm10/repeatmasker.mm10.gr.rds'
+nexus.bw.list<-list(zic3 = list(pos = 'bw/mesc_zic3_nexus_combined_normalized_positive.bw',
+                                neg = 'bw/mesc_zic3_nexus_combined_normalized_negative.bw'),
+                    oct4 = list(pos = 'bw/mesc_oct4_nexus_combined_normalized_positive.bw',
+                                neg = 'bw/mesc_oct4_nexus_combined_normalized_negative.bw'),
+                    sox2 = list(pos = 'bw/mesc_sox2_nexus_combined_normalized_positive.bw',
+                                neg = 'bw/mesc_sox2_nexus_combined_normalized_negative.bw'),
+                    klf4 = list(pos = 'bw/mesc_klf4_nexus_combined_normalized_positive.bw',
+                                neg = 'bw/mesc_klf4_nexus_combined_normalized_negative.bw'),
+                    nanog = list(pos = 'bw/mesc_nanog_nexus_combined_normalized_positive.bw',
+                                 neg = 'bw/mesc_nanog_nexus_combined_normalized_negative.bw'))
+atac_obs.bw<-'bw/mesc_native_atac_cutsites_combined.bw'
+atac_frag.bw<-'bw/mesc_native_atac_combined.bw'
+atac_pred.bw<-'preds/atac_wt_fold1_atac_atac_peaks_all.bw'
+bias_seqlets.list<-list(counts = 'modiscolite/atac_bias_atac_counts/seqlets.tsv', profile = 'modiscolite/atac_bias_atac_profile/seqlets.tsv')
+bg_freqs<-c(.2, .3, .3, .2)
+input_length<-2032
+```
+
+# Define seqlets
+
+Use fold1 as the template, define all seqlets with n>100 instances mapped based on the identities of fold1. There are other weak motifs found in the folds with n<100, but they have been found to be previously not very impactful on accessibility according to our models and are not the key focus of our work. Please reference the `modiscolite` folder for more information and reports on these motifs (Tfap2c, Rfx, some ZNFs, etc).
+
+Keep in mind for the Oct4-only motif that while we annotate some of the TF-MoDISco patterns, the seqlet PWMs indicate that these are majority ERV-containing mappings. This is the case for all Oct4 motifs except fold3 binding model. Examining experimental data showed us that these profiles are unreliable and possess low accessibility, indicating that they are not strong syntactic recruiters of either Oct4 binding nor pioneering. Thus, in many analyses moving forward, we choose to keep them from our work since ERV motif arrangements are not the focus of this work. 
+
+Further, we do not consider any deep learning model to have "learned" a motif if it is mostly ERV-enriched. This is not the right application for exploring syntax. However, we annotate "Oct4" ERV instances below from the accessibility model so that people reviewing and reproducing this work are aware that the models do notice these instances. 
+
+```{r}
+seqlet_ids.list<-list(
+  fold1 = list(
+    atac_wt = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_3', 'pattern_4', 'pattern_5',
+                      'pattern_6','pattern_7', 'pattern_9', 'pattern_10', 'pattern_13', 'pattern_17',
+                      'pattern_22', 'pattern_24', 'pattern_36'), 
+      motif = c('Klf4', 'Oct4-Sox2', 'Sox2', 'Esrrb', 'Ctcf', 'Zic3',
+                'Elk', 'Tcfcp2l1', 'Tead4', 'Nfy', 'bHLH', 'Nrf', 
+                'Thap1', 'Oct4', 'Zbtb33'),
+      oriented_strand = c('+', '-' , '-', '+', '-', '-', 
+                          '+', '+', '+', '+', '+', '+', 
+                          '-', '-', '+'),
+      task = 'atac'),
+    bpnet_osknz = data.frame(
+      metacluster_name = 'pos_patterns', #Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_0', 'pattern_0', 'pattern_1', 'pattern_0', 'pattern_19'),
+      motif = c('Klf4', 'Sox2', 'Oct4-Sox2', 'Nanog', 'Zic3', 'Oct4'),
+      oriented_strand = c('-', '+' , '+', '-', '+', '+'),
+      task = c('klf4', 'sox2', 'oct4', 'nanog', 'zic3', 'oct4'))
+  ),
+  fold2 = list(
+    atac_wt = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_3', 'pattern_5', 'pattern_6',
+                      'pattern_7', 'pattern_8', 'pattern_9', 'pattern_12', 'pattern_13', 'pattern_17', 
+                      'pattern_19', 'pattern_26', 'pattern_35'), 
+      motif = c('Klf4', 'Oct4-Sox2', 'Sox2', 'Esrrb', 'Ctcf', 'Tcfcp2l1', 
+                'Zic3', 'Nfy', 'Elk', 'Tead4',  'Nrf',  'bHLH',
+                'Oct4', 'Thap1', 'Zbtb33'),
+      oriented_strand = c('+', '+' , '+', '+', '-', '+', 
+                          '+', '-', '+', '-', '+', '+', 
+                          '+', '+', '+'),
+      task = 'atac'),
+    bpnet_osknz = data.frame(
+      metacluster_name = 'pos_patterns', #Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_0', 'pattern_0', 'pattern_2', 'pattern_0', 'pattern_19'),
+      motif = c('Klf4', 'Sox2', 'Oct4-Sox2', 'Nanog', 'Zic3', 'Oct4'),
+      oriented_strand = c('+', '-' , '+', '-', '+', '+'),
+      task = c('klf4', 'sox2', 'oct4', 'nanog', 'zic3', 'oct4'))
+  ),
+  fold3 = list(
+    atac_wt = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_4', 'pattern_5', 'pattern_6',
+                      'pattern_7', 'pattern_9', 'pattern_10', 'pattern_11', 'pattern_13', 'pattern_17', 
+                      'pattern_22', 'pattern_25', 'pattern_27'), 
+      motif = c('Oct4-Sox2', 'Klf4', 'Sox2', 'Esrrb', 'Ctcf', 'Zic3', 
+                'Nfy', 'Tcfcp2l1', 'Elk', 'Tead4',   'bHLH', 'Nrf', 
+                'Thap1', 'Oct4', 'Zbtb33'),
+      oriented_strand = c('+', '-' , '-', '-', '+', '+', 
+                          '+', '+', '+', '+', '+', '+', 
+                          '+', '+', '+'),
+      task = 'atac'),
+    bpnet_osknz = data.frame(
+      metacluster_name = 'pos_patterns', #Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_0', 'pattern_0', 'pattern_2', 'pattern_0', 'pattern_31'),
+      motif = c('Klf4', 'Sox2', 'Oct4-Sox2', 'Nanog', 'Zic3', 'Oct4'),
+      oriented_strand = c('-', '-' , '+', '-', '-', '+'),
+      task = c('klf4', 'sox2', 'oct4', 'nanog', 'zic3', 'oct4'))
+  )
+)
+
+seqlet_ids.df<-lapply(seqlet_ids.list, function(x){
+  x %>% rbindlist(idcol = 'model')
+}) %>% rbindlist(idcol = 'fold')
+readr::write_tsv(seqlet_ids.df, 'tsv/mapped_motifs/all_pattern_ids.tsv')
+```
+
+# Quantify model performance
+
+```{r}
+model_performance.path<-'tsv/performance_metrics.tsv.gz'
+model_performance.df<-readr::read_tsv(model_performance.path) %>%
+  tidyr::separate(task, into = c('task', 'channel')) %>%
+  dplyr::filter(dataset == 'test') %>%
+  dplyr::group_by(task, fold, dataset) %>%
+  dplyr::summarize(jsd = mean(jsd), counts_s = mean(`counts-spearman`))
+
+model_performance.df %>% 
+  tidyr::pivot_wider(id_cols = task, names_from = fold, values_from = counts_s)
+```
+
+# Visualize PWM representations of the seqlets
+
+Import seqlets, make logos across folds for cross-validation.
+
+```{r}
+seqlets_all.df<-lapply(names(seqlet_ids.list), function(f){
+  lapply(names(seqlet_ids.list[[f]]), function(model){
+    message(f, model)
+      seqlets.df<-lapply(Sys.glob(paste0('modiscolite/', model, '_', f, '_*counts/seqlets.tsv')),
+             function(x) readr::read_tsv(x) %>%
+               dplyr::mutate(task = gsub(paste0('modiscolite/', model, '_', f, '_'), '', x) %>%
+                               gsub('/seqlets.tsv', '', .) %>%
+                               gsub('_counts', '', .),
+                             model = model,
+                             fold = f)) %>% rbindlist() %>% as.data.frame
+  }) %>% rbindlist()
+}) %>% rbindlist() %>%
+  dplyr::left_join(., seqlet_ids.df) %>%
+  dplyr::filter(!is.na(motif)) %>%
+  dplyr::mutate(long_name = paste0(model, '_', fold, '_', motif),
+                medium_name = paste0(model, '_', motif)) %>%
+  dplyr::arrange(model, motif, fold)
+
+filler<-lapply(seqlets_all.df$medium_name %>% unique, function(y){
+  seqlets.list<-seqlets_all.df %>% dplyr::filter(medium_name==y) %>% .$long_name %>% unique %>%
+    lapply(., function(x){
+      s.df<-seqlets_all.df %>% dplyr::filter(long_name==x)
+      seqs<-s.df$sequence
+      if((s.df$oriented_strand %>% unique)=='-'){
+        seqs<-DNAStringSet(seqs) %>% reverseComplement(.) %>% as.character(.)
+      }
+      return(seqs)
+    })
+  names(seqlets.list)<-seqlets_all.df %>% dplyr::filter(medium_name==y) %>% .$long_name %>% unique
+  seqlet.plot<-ggplot() + geom_logo(seqlets.list) + theme_logo() + 
+    facet_wrap(~seq_group, nrow = 1) +
+    scale_y_continuous(limits = c(0, 2))+
+    theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), 
+          axis.line = element_blank(), axis.ticks = element_blank())
+  ggsave(paste0(figure_filepath, '/seqlet_logo_', y, '.png'), seqlet.plot, height = 1, width = 8)
+  ggsave(paste0(figure_filepath, '/seqlet_logo_', y, '.pdf'), seqlet.plot, height = 1, width = 8)
+  return(NULL)
+})
+```
+
+## Bias model
+
+```{r}
+filler<-lapply(c('counts', 'profile'), function(f){
+  seqlets.list<-lapply(1:3, function(y){
+    s.df<-readr::read_tsv(paste0('modiscolite/atac_bias_atac_', f, '/seqlets.tsv')) %>% 
+      dplyr::filter(pattern_name==paste0('pattern_', y), metacluster_name=='pos_patterns') 
+    return(s.df$sequence)
+  })
+  names(seqlets.list)<-1:3
+  seqlet.plot<-ggplot() + geom_logo(seqlets.list) + theme_logo() + 
+    facet_wrap(~seq_group, nrow = 1) +
+    scale_y_continuous(limits = c(0, 2))+
+    theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), 
+          axis.line = element_blank(), axis.ticks = element_blank())
+  ggsave(paste0(figure_filepath, '/seqlet_logo_bias_', f, '.png'), seqlet.plot, height = 1, width = 8)
+  ggsave(paste0(figure_filepath, '/seqlet_logo_bias_', f, '.pdf'), seqlet.plot, height = 1, width = 8)
+  return(NULL)
+})
+```
+
+# Import hits
+
+Using fold1, import all hits from the key motifs of interest.
+
+```{r}
+hits.list<-lapply(names(seqlet_ids.list$fold1), function(model){
+  df<-lapply(Sys.glob(paste0('modiscolite/', model, '_fold1_*counts/hits.tsv')),
+                     function(x) readr::read_tsv(x) %>%
+                       dplyr::mutate(task = gsub(paste0('modiscolite/', model, '_fold1_'), '', x) %>%
+                                       gsub('/hits.tsv', '', .) %>%
+                                       gsub('_counts', '', .),
+                                     model = model,
+                                     fold = 'fold1')) %>% 
+    rbindlist() %>% as.data.frame %>% 
+    dplyr::left_join(., seqlet_ids.df) %>%
+    dplyr::filter(!is.na(motif), motif %in% names(motif_to_task.list))
+  print(table(df$motif))
+  return(df)
+})
+names(hits.list)<-names(seqlet_ids.list$fold1)
+```
+
+## Curate motifs redundancy
+
+Remove the following redundancies:
+
++ Motifs that are peak-redundant will be mapped across peak "indexes" that are actually located across overlapping genomic regions. 
++ Motifs that are palindromic will be mapped on the positive and negative strand with almost identical ranges. 
+  + Here, we will remove redundantly mapped motifs and select the unique motif maps that have the highest contribution.
++ Motifs that have sub-components such as Sox2 mapped over an Oct4-Sox2 motif. We will assign Oct4-Sox2 motifs as the prior.
++ Motifs that have sub-components such as Nanog mapped over an Oct4-Sox2/Sox2 motif. We will assign Oct4-Sox2/Sox2 motifs as the prior.
+
+In order to simultaneously manage peak-redundancy and palindromic motifs, we will have to assign generalized "peak islands" intead of `peak_index` as our grouped region sets.
+
+```{r}
+hits_dedup.list<-lapply(names(hits.list), function(model){
+  #Orient strand to match desired aligned convention
+  gr<-makeGRangesFromDataFrame(hits.list[[model]], keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+    plyranges::mutate(strand = ifelse(oriented_strand == '-', 
+                                      ifelse(strand == '-', '+', '-'),
+                                      strand))
+  
+  #Import peaks and reduce them to a deduplicated state to get general peak regions.
+  peaks.gr<-rtracklayer::import(peaks.path) %>% 
+    GenomicRanges::resize(., input_length, fix = 'center') %>% 
+    GenomicRanges::reduce(., ignore.strand = T) %>% 
+    plyranges::mutate(region_id_tmp = 1:length(.))
+  
+  #Find overlaps between motifs and peaks
+  ov<-findOverlaps(gr, peaks.gr, ignore.strand = T)
+  
+  #Assign temporary region ID for deduplication
+  gr$region_id_tmp<-NA
+  gr$region_id_tmp[ov@from]<-peaks.gr$region_id_tmp[ov@to]
+
+  #Filter any motif that doesn't fit into peaks. This means that the motif is mapped on the edges of the general, temporary region_id
+  gr<-gr %>% plyranges::filter(!is.na(gr$region_id_tmp))
+  
+  #Deduplicate any motifs for palindromic mappings
+  dedup.gr<-lapply(unique(gr$motif), function(y){
+    print(y)
+    motifs.gr<-gr %>% plyranges::filter(motif==y)
+    motifs_dedup.gr<-remove_palindromic_motifs_from_bpnet_instances(dfi = motifs.gr, 
+                                                                    pattern_to_filter = y, 
+                                                                    chrom_name = 'seqnames', start_name = 'start', end_name = 'end', 
+                                                                    value_name = 'contrib_match', motif_name = 'motif',
+                                                                    region_name = 'region_id_tmp')
+    print(paste0(length(motifs_dedup.gr) , ' kept from ', length(motifs.gr)))
+    return(motifs_dedup.gr)
+  }) %>% as('GRangesList') %>% unlist(.)
+
+  final_motifs.gr<-dedup.gr %>%
+    plyranges::select(-c(region_id_tmp, oriented_strand, fold))
+  
+  return(final_motifs.gr)
+})
+names(hits_dedup.list)<-names(hits.list)
+```
+
+## Double check motif overlaps
+
+Ensure that there isn't an overrepresentation of unexpected overlapping motif pairs. We expect some overlaps, but checking to make sure that our curations are consistent. 
+
+```{r}
+lapply(hits_dedup.list, function(gr){
+  reduced_motifs.gr<-gr %>% GenomicRanges::reduce(., ignore.strand = T, min.gapwidth = 0)
+  gr$motif_id_tmp<-findOverlaps(gr, reduced_motifs.gr, ignore.strand = T)@to
+  motifs_overlapped_ids<-table(gr$motif_id_tmp)[table(gr$motif_id_tmp)>1]
+  
+  gr %>%
+    as.data.frame %>%
+    dplyr::filter(motif_id_tmp %in% names(motifs_overlapped_ids)) %>%
+    dplyr::group_by(motif_id_tmp) %>%
+    dplyr::summarize(overlapping_motif_name = paste0(sort(motif), collapse = ':')) %>%
+    .$overlapping_motif_name %>%
+    table(.) %>% 
+    sort(decreasing = T) %>%
+    head(n=30)
+})
+```
+
+Here, we see overlaps between motifs and their frequencies. It is clear that Sox2/Nanog/Oct4-Sox2 motif overlaps need to be addressed (see code below).
+
+The rest of the overlaps are not unexpected and does not appear to be overrepresented. The most frequently overlapped motifs make sense based on degenerate sequence matches. Resolving this is not necessary as it is an incorrect assumption to state that one genomic coordinate can act as only one motif. We resolve the most obvious cases for the sake of clear analysis, but will not globally impose those assumptions.
+
+# Align motifs
+
+1. Align motifs such that subgroups have the same coordinates.
+2. Align motifs such that the binding and accessibility versions have the same coordinates. 
+For later assignment of affinity to seqlet-distribution %iles, we recorded the original starts and ends.
+
+## Align the binding and accessibility motifs
+
+In order to make fair comparisons, we want to make sure the motifs orient and are aligned positionally the same. Here, we will match the `motif` column for alignment. We will align the accessibility motifs to match the binding motifs.
+
+```{r}
+shared_motifs.vec<-c('Klf4', 'Oct4-Sox2', 'Sox2', 'Zic3')
+
+shared_acc_motifs.vec<-hits_dedup.list$atac_wt %>% plyranges::filter(motif %in% shared_motifs.vec) %>% .$motif %>% unique()
+shared_bind_motifs.vec<-hits_dedup.list$bpnet_osknz %>% plyranges::filter(motif %in% shared_motifs.vec) %>% .$motif %>% unique()
+acc_motifs_dedup.gr<-hits_dedup.list$atac_wt
+  
+#Plot the differences
+acc_seqs.list<-lapply(shared_acc_motifs.vec, function(x){
+  topmotif.gr<-acc_motifs_dedup.gr %>% plyranges::filter(motif==x) %>%
+    plyranges::arrange(desc(seq_match_quantile)) %>% head(n=5000) %>% 
+  plyranges::mutate(seq = getSeq(bsgenome, ., as.character = TRUE))
+  top500.seq<-topmotif.gr$seq  
+  return(top500.seq)
+})
+names(acc_seqs.list)<-paste0('acc_', shared_acc_motifs.vec)
+bind_seqs.list<-lapply(shared_bind_motifs.vec, function(x){
+  topmotif.gr<-hits_dedup.list$bpnet_osknz %>% plyranges::filter(motif==x) %>%
+    plyranges::arrange(desc(seq_match_quantile)) %>% head(n=5000) %>% 
+  plyranges::mutate(seq = getSeq(bsgenome, ., as.character = TRUE))
+  top500.seq<-topmotif.gr$seq  
+  return(top500.seq)
+})
+names(bind_seqs.list)<-paste0('bind_', shared_bind_motifs.vec)
+all_seqs.list<-c(acc_seqs.list, bind_seqs.list)
+
+ggseqlogo(all_seqs.list) + 
+  facet_wrap(~seq_group, ncol = 4, scales = 'free')
+
+# Set alignment criteria
+
+#From the plot, generate a data.frame that shows the requirements for reformatting, this will include all logos except the first "anchor" unqiuemotif.
+reformat.df<-data.frame(
+  anchor_width = c(11, 15, 9, 11),
+  motif = shared_acc_motifs.vec,
+  flank_5p = c(0, 0, -5, 0), #amount of starting flank to add
+  flank_3p = c(0, 1, 0, -4) #amount of ending flank to add
+)
+
+#Split the motifs out for processing
+acc_motifs_nonunique.gr<-acc_motifs_dedup.gr %>% plyranges::filter(!(motif %in% shared_acc_motifs.vec))
+acc_motifs_unique.gr<-acc_motifs_dedup.gr %>% plyranges::filter(motif %in% shared_acc_motifs.vec)
+
+#Reformat the motifs
+acc_unique_reformatted.gr<-lapply(shared_acc_motifs.vec, function(x){
+  message(x)
+  reformat_row.df<-reformat.df %>% dplyr::filter(motif==x)
+  gr<-acc_motifs_unique.gr %>% plyranges::filter(motif==x)
+  
+  #Realign the motif after reformatted
+  gr_pos.gr<-gr %>% plyranges::filter(strand == '+')
+  gr_neg.gr<-gr %>% plyranges::filter(strand == '-')
+  
+  flank_5p<-reformat_row.df$flank_5p
+  flank_3p<-reformat_row.df$flank_3p
+  
+  start(gr_pos.gr)<-start(gr_pos.gr) - flank_5p
+  end(gr_pos.gr)<-end(gr_pos.gr) + flank_3p
+  
+  start(gr_neg.gr)<-start(gr_neg.gr) - flank_3p
+  end(gr_neg.gr)<-end(gr_neg.gr) + flank_5p
+  
+  gr<-c(gr_pos.gr, gr_neg.gr)
+  
+  assert('Realignment is not working, some GRanges are not same width.', all(width(gr)==reformat_row.df$anchor_width))
+  return(gr)
+}) %>% as('GRangesList') %>% unlist(.)
+
+#Check sequences to make sure they are aligned
+reformatted_seqs.list<-lapply(shared_acc_motifs.vec, function(x){
+  acc_unique_reformatted.gr %>% 
+    plyranges::filter(motif==x) %>%
+    plyranges::mutate(seq = getSeq(bsgenome, ., as.character = TRUE)) %>%
+    as.data.frame %>%
+    dplyr::slice_max(seq_match_quantile, n = 500) %>% .$seq
+})
+names(reformatted_seqs.list)<-paste0('reformat_acc_', shared_acc_motifs.vec)
+reformat_all_seqs.list<-c(reformatted_seqs.list, bind_seqs.list)
+
+ggseqlogo(reformat_all_seqs.list)+ 
+  facet_wrap(~seq_group, ncol = 4, scales = 'free')
+
+acc_motifs_aligned.gr<-c(acc_motifs_nonunique.gr, acc_unique_reformatted.gr)
+hits_aligned.list<-hits_dedup.list
+hits_aligned.list$atac_wt<-acc_motifs_aligned.gr
+```
+
+## Merge accessibility and binding motifs into single motif set
+
+Here, now that all appropriate deduplication and alignment steps have been performed, we want to now merge the motifs that are mapped both by accessibility and binding models. This way, we will have a consolidated and annotated set of which motifs are unique to each feature and can assess these overlaps accordingly.
+
+We will merge this via the `motif` and genomic coordinates, leaving the OS assessment of `motif` for later down the line.
+
+```{r}
+tf_motifs.gr<-hits_aligned.list$bpnet_osknz %>%
+  plyranges::mutate(mapping_state = 'bind')
+acc_motifs.gr<-hits_aligned.list$atac_wt %>%
+  plyranges::mutate(mapping_state = 'acc')
+
+all_motifs.gr<-lapply(shared_motifs.vec, function(x){
+  #Subset motifs
+  tf_motif.gr<-tf_motifs.gr %>%
+    plyranges::filter(motif == x)
+  acc_motif.gr<-acc_motifs.gr %>%
+    plyranges::filter(motif == x)
+  
+  #Find overlaps
+  min_width<-floor(unique(width(acc_motif.gr))/2) #needs to overlap by at least 1/2 of motif
+  tf_vs_acc.ov<-findOverlaps(tf_motif.gr, acc_motif.gr, ignore.strand = T, minoverlap = min_width)
+  
+  #Isolate motif mapping states
+  tf_motif.gr$mapping_state[unique(tf_vs_acc.ov@from)]<-'both'
+  acc_motif.gr$mapping_state[unique(tf_vs_acc.ov@to)]<-'both'
+  
+  #Consoldiate motif set
+  acc_only_motif.gr<-acc_motif.gr %>% plyranges::filter(mapping_state != 'both')
+  all_motif.gr<-c(tf_motif.gr, acc_only_motif.gr)
+}) %>% as('GRangesList') %>% unlist(.) %>%
+  c(., tf_motifs.gr %>% plyranges::filter(!(motif %in% shared_motifs.vec)))
+
+
+#Remove Sox2 motifs overlapping with Oct4-Sox2 motif.
+sox2_motifs.gr<-all_motifs.gr %>% plyranges::filter(motif=='Sox2')
+os_motifs.gr<-all_motifs.gr %>% plyranges::filter(motif=='Oct4-Sox2')
+sox2_dedup_motifs.gr<-sox2_motifs.gr %>% plyranges::filter(!overlapsAny(sox2_motifs.gr, os_motifs.gr, ignore.strand = T))
+print(paste0('Sox2 motifs removed from OS redundancy: ', length(sox2_motifs.gr) - length(sox2_dedup_motifs.gr)))
+dedup_w_s.gr<-c(all_motifs.gr %>% plyranges::filter(motif != 'Sox2'), sox2_dedup_motifs.gr)
+
+#Remove Oct4 motifs overlapping with Oct4-Sox2 motif.
+Oct4_motifs.gr<-dedup_w_s.gr %>% plyranges::filter(motif=='Oct4')
+os_motifs.gr<-dedup_w_s.gr %>% plyranges::filter(motif=='Oct4-Sox2')
+Oct4_dedup_motifs.gr<-Oct4_motifs.gr %>% plyranges::filter(!overlapsAny(Oct4_motifs.gr, os_motifs.gr, ignore.strand = T))
+print(paste0('Oct4 motifs removed from OS redundancy: ', length(Oct4_motifs.gr) - length(Oct4_dedup_motifs.gr)))
+dedup_w_o.gr<-c(dedup_w_s.gr %>% plyranges::filter(motif != 'Oct4'), Oct4_dedup_motifs.gr)
+
+#Remove Nanog motifs overlapping with Sox2/Oct4-Sox2 motif.
+nanog_motifs.gr<-dedup_w_o.gr %>% plyranges::filter(motif=='Nanog')
+other_motifs.gr<-dedup_w_o.gr %>% plyranges::filter(grepl('Sox2', motif))
+nanog_dedup_motifs.gr<-nanog_motifs.gr %>% plyranges::filter(!overlapsAny(nanog_motifs.gr, other_motifs.gr, ignore.strand = T))
+print(paste0('Nanog motifs removed from OS/S redundancy: ', length(nanog_motifs.gr) - length(nanog_dedup_motifs.gr)))
+dedup_w_n.gr<-c(dedup_w_o.gr %>% plyranges::filter(motif != 'Nanog'), nanog_dedup_motifs.gr)
+
+print(dedup_w_n.gr %>% as.data.frame %>% dplyr::group_by(motif) %>% dplyr::summarize(counts = dplyr::n()))
+
+table(dedup_w_n.gr$motif, dedup_w_n.gr$mapping_state)
+```
+
+Format the motifs.
+
+```{r}
+motifs.gr<-dedup_w_n.gr %>%
+  plyranges::mutate(motif_id = 0:(length(.)-1), #0-based indexing later might come in handy
+                    seq = getSeq(bsgenome, ., as.character = T))
+```
+
+## Align the quantile distributions across model motif calls
+
+Because the ChromBPNet and BPNet models have different distributions of motif calls, we need to align the motif scores to match. We will align all motifs to the binding distributions and recalculate the `seq_match_quantile` scores.
+
+```{r}
+motifs_pre_quantiles.df<-motifs.gr %>% as.data.frame()
+motifs.df<-lapply(motifs_pre_quantiles.df$motif %>% unique, function(x){
+  message(x)
+  #Obtain seqlets
+  bind_seqlets.df<-seqlets_all.df %>% dplyr::filter(fold == 'fold1', model == 'bpnet_osknz', motif==x)
+  if((seqlet_ids.df %>% dplyr::filter(fold == 'fold1', model == 'bpnet_osknz', motif==x) %>% .$oriented_strand)=='-'){
+    bind_seqlets.df$sequence<-bind_seqlets.df$sequence %>% DNAStringSet() %>% reverseComplement() %>% as.character()
+  }
+  
+  motif.df<-motifs_pre_quantiles.df %>% dplyr::filter(motif==x)
+  seq_length<-nchar(motif.df$seq)[1]
+  
+  #Assert that you can map back sequences
+  test<-((motif.df %>% dplyr::filter(motif==x, mapping_state != 'acc_only') %>%
+            dplyr::group_by(seq_match, seq) %>%
+            dplyr::summarize(seq_n = length(unique(seq))) %>%
+            .$seq_n %>% table() %>% length()) == 1)
+  testit::assert('seq_match is not 1:1 with seq', test[1])
+  
+  #Map trimmed binding sequences back to seqlets
+  bind_seqlets.df<-bind_seqlets.df %>%
+    dplyr::left_join(., motif.df %>% dplyr::select(seq, seq_match) %>% dplyr::mutate(dup = duplicated(seq)) %>% dplyr::filter(!dup) %>% dplyr::select(-dup), by = 'seq_match') %>%
+    dplyr::mutate(seq = ifelse(is.na(seq), 'N', seq))
+  
+  if(all(bind_seqlets.df$seq == 'N')){
+    start_index<-motif.df$seq %>% table %>% sort(decreasing = T) %>% .[1] %>% names(.) %>% gregexpr(pattern=., bind_seqlets.df$sequence) %>% unlist() %>% 
+      .[.>0] %>% table() %>% sort(decreasing = T) %>% .[1] %>% names(.) %>% as.integer()
+  }else{
+    #Impute motif boundaries from the most commonly occuring sequence match features
+    start_index<-lapply(1:nrow(bind_seqlets.df), function(y){
+      unlist(gregexpr(pattern=bind_seqlets.df$seq[y], bind_seqlets.df$sequence[y]))
+    }) %>% unlist() %>% .[.>0] %>% table() %>% sort(decreasing = T) %>% .[1] %>% names(.) %>% as.integer()
+  }
+  #Reobtain seqlets
+  bind_seqlets.df<-seqlets_all.df %>% dplyr::filter(fold == 'fold1', model == 'bpnet_osknz', motif==x)
+  if((seqlet_ids.df %>% dplyr::filter(fold == 'fold1', model == 'bpnet_osknz', motif==x) %>% .$oriented_strand)=='-'){
+    bind_seqlets.df$sequence<-bind_seqlets.df$sequence %>% DNAStringSet() %>% reverseComplement() %>% as.character()
+  }
+  bind_seqlets.df$seq_trimmed<-substr(bind_seqlets.df$sequence, start = start_index, stop = (start_index + seq_length - 1))
+  
+  #Get PPM and score and derive quantiles
+  ppm<-seq_to_ppm(bind_seqlets.df$seq_trimmed)
+  ic<-ppm_to_ic(ppm, bg_freq = c(.25, .25, .25, .25))
+  bind_seqlets.df$seq_match<-mclapply(bind_seqlets.df$seq_trimmed, function(y) get_sequence_ic(y, ic), mc.cores = 12) %>% unlist()
+  bind_seqlets.df$seq_match_quantile<-ecdf(bind_seqlets.df$seq_match)(bind_seqlets.df$seq_match)
+  
+  motif.df$seq_match<-mclapply(motif.df$seq, function(y) get_sequence_ic(y, ic), mc.cores = 12) %>% unlist()
+  motif.df$seq_match_quantile<-ecdf(bind_seqlets.df$seq_match)(motif.df$seq_match)
+  
+  motif.df<-motif.df %>%
+    dplyr::select(-contrib_magnitude, -contrib_magnitude_quantile, -contrib_match, -contrib_match_quantile)
+  
+  return(motif.df)
+}) %>% rbindlist()
+motifs.gr<-motifs.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+```
+
+# Annotate motifs by their collected regional grouping
+
+Because we took motifs based on their relative contribution and not the featured `peak_index` column, we need a new grouping annotation to define the motifs when we are conducting perturbations and other grouping systems. We will call this index `region_id`.
+
+```{r}
+islands.gr<-resize(motifs.gr, 150, 'center') %>%
+  GenomicRanges::reduce(ignore.strand = T)
+# rtracklayer::export(islands.gr, 'bed/mapped_motifs/islands_raw.bed')
+
+data.frame(x = width(islands.gr)) %>%
+  ggplot(., aes(x = x))+
+  geom_density()
+
+#Filter islands that are >1000 bp
+islands.gr <- islands.gr %>% plyranges::filter(width <= input_length)  %>%
+  plyranges::mutate(region_id = 0:(length(.)-1)) #Make region_id 0-based in order to be compatible with BPNet contribution .h5 file indexing properties.
+
+#Nice! No regions get filtered out this time. This is great.
+
+#Export regions in 0-based coordinates
+rtracklayer::export(islands.gr %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_islands_curated_0based.bed', format = 'BED')
+rtracklayer::export(islands.gr %>% 
+                      GenomicRanges::resize(., width = output_length, fix = 'center') %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_islands_curated_0based_sized_to_output.bed', format = 'BED')
+rtracklayer::export(islands.gr %>% 
+                      GenomicRanges::resize(., width = input_length, fix = 'center') %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_islands_curated_0based_sized_to_input.bed', format = 'BED')
+```
+
+Show how many motifs there are per window
+
+```{r}
+ov<-findOverlaps(motifs.gr, islands.gr, ignore.strand = T)
+islands_resized_to_output.gr <- islands.gr %>% GenomicRanges::resize(., width = output_length, fix = 'center')
+
+ov@to %>% table %>% table
+```
+
+Calculate experimental coverage, CpG density, and promoter presence across islands, and save metadata.
+
+First, collect ChIP-nexus data.
+
+```{r}
+#Collect coverage across regions
+tf_counts.df<-mclapply(names(nexus.bw.list), function(x){
+  regionSums(islands_resized_to_output.gr, nexus.bw.list[[x]]$pos)  + 
+    abs(regionSums(islands_resized_to_output.gr, nexus.bw.list[[x]]$neg))
+}, mc.cores = 5) %>% as.data.frame()
+colnames(tf_counts.df)<-names(nexus.bw.list)
+```
+
+Next, collect predicted ChIP-nexus data
+
+```{r}
+tf_pred_counts.df<-mclapply(names(nexus.bw.list), function(x){
+  
+  pred.bw.list<-list(pos = paste0('preds/bpnet_osknz_fold1_', x, '_pos_peaks_all.bw'),
+                     neg = paste0('preds/bpnet_osknz_fold1_', x, '_neg_peaks_all.bw'))
+  
+  regionSums(islands_resized_to_output.gr, pred.bw.list$pos)  + 
+    abs(regionSums(islands_resized_to_output.gr, pred.bw.list$neg))
+  
+}, mc.cores = 5) %>% as.data.frame()
+colnames(tf_pred_counts.df)<-paste0(names(nexus.bw.list), '_pred')
+```
+
+Next, collect and consolidate experimental data, presence of promoters, and CpG density. CpG density was manually calculated based on the 2006 publication that originated this particular density function (https://www.pnas.org/doi/full/10.1073/pnas.0510310103).
+
+```{r}
+tss.gr<-txdb %>% transcripts(.) %>% resize(., width = 1, fix = 'start')
+islands_resized_to_output.gr<-islands_resized_to_output.gr %>%
+  as.data.frame %>%
+  cbind(., tf_counts.df) %>%
+  cbind(., tf_pred_counts.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F) %>%
+  plyranges::mutate(
+    contains_tss = overlapsAny(., tss.gr),
+    island_seq = getSeq(bsgenome, GRanges(seqnames, IRanges(start, end)), as.character = T),
+    C = stringr::str_count(island_seq, 'C'),
+    G = stringr::str_count(island_seq, 'G'),
+    CpG = stringr::str_count(island_seq, 'CG'),
+    CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / width), 2),
+    atac_obs = regionSums(., atac_obs.bw),
+    atac_pred = regionSums(., atac_pred.bw))
+```
+
+Mark nearest gene.
+
+```{r}
+tss.gr<-genes(TxDb.Mmusculus.UCSC.mm10.knownGene, columns=c("gene_id"))
+id_to_symbol.df <- AnnotationDbi::select(org.Mm.eg.db, keys = tss.gr$gene_id,
+                                          columns = c("SYMBOL","ENTREZID"),
+                                          keytype = "ENTREZID")
+
+islands_resized_to_output.gr$nearest_gene_id<-tss.gr[nearest(islands_resized_to_output.gr, tss.gr)]$gene_id
+islands_resized_to_output.gr$nearest_gene_start<-start(tss.gr[nearest(islands_resized_to_output.gr, tss.gr)])
+islands_resized_to_output.gr$nearest_gene_distance<-abs(start(resize(islands_resized_to_output.gr, 1, 'center')) - islands_resized_to_output.gr$nearest_gene_start)
+islands_resized_to_output.gr$nearest_gene_name<-islands_resized_to_output.gr %>% as.data.frame %>%
+  dplyr::select(nearest_gene_id) %>%
+  dplyr::left_join(., id_to_symbol.df %>% dplyr::rename(nearest_gene_id = ENTREZID, nearest_gene_name = SYMBOL)) %>%
+  .$nearest_gene_name
+```
+
+## Assign to motifs
+
+```{r}
+#Assign region_id to these motifs
+motifs_w_regions.gr<-motifs.gr
+motifs_w_regions.gr$region_id<-NA
+motifs_w_regions.gr$region_id[ov@from]<-islands_resized_to_output.gr$region_id[ov@to]
+motifs_w_regions.gr$region_start_1based<-NA
+motifs_w_regions.gr$region_start_1based[ov@from]<-start(islands_resized_to_output.gr)[ov@to]
+motifs_w_regions.gr$region_end_1based<-NA
+motifs_w_regions.gr$region_end_1based[ov@from]<-end(islands_resized_to_output.gr)[ov@to]
+
+#Filter motifs that aren't in a sufficiently small island.
+motifs_w_ic.gr <- motifs_w_regions.gr %>% plyranges::filter(!is.na(region_id))
+```
+
+# Calculate islands
+
+Perform island analysis
+
+```{r}
+island_classes.df<-motifs_w_ic.gr %>%
+  GenomicRanges::sort(ignore.strand = T) %>%
+  as.data.frame %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::summarize(island_content = paste(unique(sort(motif)), table(sort(motif)), sep = ':', collapse = '_'),
+                   island_content_ordered = paste(motif, collapse = '_'),
+                   island_content_unique = paste(unique(sort(motif)), collapse = '_'),
+                   island_count = length(motif))
+
+islands_resized_to_output.gr<-islands_resized_to_output.gr %>% as.data.frame %>% dplyr::left_join(., island_classes.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+motifs_w_ic.gr<-motifs_w_ic.gr %>% as.data.frame %>% dplyr::left_join(., island_classes.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+```
+
+Last, save this as an .RDS file and as .tsv metadata.
+
+```{r}
+saveRDS(islands_resized_to_output.gr, 'rdata/mapped_motifs/all_islands_curated_1based_w_experimental_data.gr.rds')
+readr::write_tsv(islands_resized_to_output.gr %>% as.data.frame, 'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz')
+```
+
+```{r}
+islands_resized_to_output.gr$CpG %>% summary()
+islands_resized_to_output.gr$C %>% summary()
+islands_resized_to_output.gr$G %>% summary()
+islands_resized_to_output.gr$CpG_ratio %>% summary()
+```
+
+## Collect contribution scores
+
+```{r}
+#Collect accessibility contribution
+motifs_w_acc.gr<-motifs_w_ic.gr %>%
+  plyranges::mutate(acc_contrib = regionSums(., acc_counts_contrib.bw))
+
+#Collect tf binding contribution
+tf_contrib.df<-mclapply(tasks, function(x){
+  regionSums(motifs_w_acc.gr, paste0('shap/bpnet_osknz_fold1_', x, '_counts.bw'))
+}, mc.cores = length(tasks)) %>% as.data.frame(.)
+colnames(tf_contrib.df)<-paste0(tasks, '_contrib')
+
+#Format contribution
+motifs_w_metadata.gr<-motifs_w_acc.gr %>% 
+  as.data.frame %>%
+  cbind(., tf_contrib.df) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+
+#Create TF-motif specific column
+motifs_w_metadata.gr<-lapply(names(motif_to_task.list), function(x){
+  motif.df<-motifs_w_metadata.gr %>% plyranges::filter(motif == x) %>% as.data.frame(.)
+  motif.df$bind_contrib<-motif.df[[paste0(motif_to_task.list[[x]], '_contrib')]]
+  return(makeGRangesFromDataFrame(motif.df, keep.extra.columns = T, starts.in.df.are.0based = F))
+}) %>% as('GRangesList') %>% unlist(.)
+```
+
+## Mark ERVs
+
+```{r}
+repeats.gr<-readRDS(repeats.path)
+ervs.gr<-repeats.gr %>% plyranges::filter(grepl('ERV', repeat_class))
+motifs_w_metadata.gr$is_across_erv <- overlapsAny(motifs_w_metadata.gr, ervs.gr, ignore.strand = T)
+```
+
+# Export curated motifs
+
+Show final results of motifs returned:
+
+```{r}
+motifs_w_metadata.gr$motif %>% table
+```
+
+Export curated motifs. In the subsequent .bed file it will be the `[task]_[motif_id]_[region_id]` naming convention.
+
+```{r}
+#1-based
+motifs.df<-motifs_w_metadata.gr %>% as.data.frame()
+readr::write_tsv(motifs.df, paste0('tsv/mapped_motifs/all_instances_curated_1based.tsv.gz'))
+
+#0-based
+rtracklayer::export(motifs_w_metadata.gr %>% plyranges::mutate(name = paste0(motif, '_', motif_id, '_', region_id)), 
+                    paste0('bed/mapped_motifs/all_instances_curated_0based.bed'))
+```
+
+# Curate Xiong et al motif mappings
+
+From the ATAC-seq time course experiments, select the "WT" timepoint (0h) and map motifs such that we can do analysis on them later.
+
+```{r}
+xiong_motif_key.df<-data.frame(pattern_name = c('pattern_0','pattern_1','pattern_2'), motif = c('Klf4','Sox2','Oct4-Sox2'), oriented_strand = c('+', '+', '-'))
+
+#Read in data
+xiong_motifs.gr<-readr::read_tsv('modiscolite/atac_0h_fold1_atac_counts/hits.tsv') %>%
+  dplyr::filter(metacluster_name == 'pos_patterns', pattern_name %in% c('pattern_0','pattern_1','pattern_2')) %>%
+  dplyr::left_join(xiong_motif_key.df) %>%
+  dplyr::mutate(strand = ifelse(oriented_strand == '-', 
+                                ifelse(strand == '-', '+', '-'),
+                                strand)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T)
+```
+
+Curate redundnacy by mapping to a distinct set of islands. Export islands.
+
+```{r}
+xiong_regions.gr<-xiong_motifs.gr %>% GenomicRanges::resize(., 150, 'center') %>% GenomicRanges::reduce(ignore.strand = T) %>% 
+  plyranges::mutate(region_id = 0:(length(.)-1)) #Make region_id 0-based in order to be compatible with BPNet contribution .h5 file indexing properties.
+xiong_motif_vs_regions.ov<-findOverlaps(xiong_motifs.gr, xiong_regions.gr, ignore.strand = T)
+xiong_motifs.gr$region_id<-xiong_regions.gr$region_id[xiong_motif_vs_regions.ov@to]
+```
+
+Ensure Oct4-Sox2 motifs are not overlapping Sox2 motifs. Check this explicitly.
+
+```{r}
+os_xiong.gr<-xiong_motifs.gr %>% plyranges::filter(motif == 'Oct4-Sox2')
+s_xiong.gr<-xiong_motifs.gr %>% plyranges::filter(motif == 'Sox2')
+
+#Remove Sox2 motifs overlapping with Oct4-Sox2 motif.
+s_dedup_xiong.gr<-s_xiong.gr %>% plyranges::filter(!overlapsAny(s_xiong.gr, os_xiong.gr, ignore.strand = T))
+print(paste0('Sox2 motifs removed from OS redundancy: ', length(s_xiong.gr) - length(s_dedup_xiong.gr)))
+xiong_os_dedup_motifs.gr<-c(xiong_motifs.gr %>% plyranges::filter(motif != 'Sox2'), s_dedup_xiong.gr)
+```
+
+Curate redundancy by making sure NO motif overlaps. We will select overlapping motif from grouped set based on `contrib_magnitude`.
+
+```{r}
+xiong_motifs_dedup.gr<-lapply(c('Oct4-Sox2', 'Sox2','Klf4'), function(x){
+  remove_palindromic_motifs_from_bpnet_instances(xiong_os_dedup_motifs.gr,
+                                                 pattern_to_filter = x, 
+                                                 chrom_name = 'seqnames', 
+                                                 start_name = 'start', 
+                                                 end_name = 'end', 
+                                                 value_name = 'contrib_magnitude', #Pick longer xiong_motif typically
+                                                 motif_name = 'motif',
+                                                 region_name = 'region_id')
+}) %>% as('GRangesList') %>% unlist %>%
+  plyranges::mutate(motif_id = 0:(length(.)-1),
+                    seq = getSeq(bsgenome, .))
+```
+
+Export all motifs and regions.
+
+```{r}
+#Export regions in 0-based coordinates
+rtracklayer::export(xiong_regions.gr %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_xiong_islands_curated_0based.bed', format = 'BED')
+rtracklayer::export(xiong_regions.gr %>% 
+                      GenomicRanges::resize(., width = output_length, fix = 'center') %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_xiong_islands_curated_0based_sized_to_output.bed', format = 'BED')
+rtracklayer::export(xiong_regions.gr %>% 
+                      GenomicRanges::resize(., width = input_length, fix = 'center') %>% 
+                      plyranges::mutate(name = region_id), 
+                    'bed/mapped_motifs/all_xiong_islands_curated_0based_sized_to_input.bed', format = 'BED')
+
+#1-based
+xiong_motifs_dedup.df<-xiong_motifs_dedup.gr %>% as.data.frame()
+readr::write_tsv(xiong_motifs_dedup.df, paste0('tsv/mapped_motifs/all_xiong_instances_curated_1based.tsv.gz'))
+
+#0-based
+rtracklayer::export(xiong_motifs_dedup.gr %>% plyranges::mutate(name = paste0(motif, '_', motif_id, '_', region_id)), 
+                    paste0('bed/mapped_motifs/all_xiong_instances_curated_0based.bed'))
+```
+
+# Compare BPNet and ChromBPNet mappings
+
+## Sequence match scores
+
+```{r}
+bpnet_vs_chrombpnet.plot<-rbind(
+  motifs.df %>% 
+    dplyr::filter(mapping_state %in% c('bind', 'both')) %>% 
+    dplyr::mutate(mapping_state_all = 'bind') %>% 
+    dplyr::group_by(motif), 
+motifs.df %>% 
+  dplyr::filter(mapping_state %in% c('acc', 'both')) %>% 
+  dplyr::mutate(mapping_state_all = 'acc') %>% 
+  dplyr::group_by(motif) 
+) %>%
+  ggplot(., aes(x = seq_match, fill = mapping_state_all))+
+  geom_density(alpha = .5)+
+  facet_wrap(~ motif, scales = 'free')+
+  theme_classic()
+bpnet_vs_chrombpnet.plot
+ggsave(paste0(figure_filepath, '/bpnet_vs_chrombpnet_seq_match.png'), bpnet_vs_chrombpnet.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/bpnet_vs_chrombpnet_seq_match.pdf'), bpnet_vs_chrombpnet.plot, height = 4, width = 8)
+
+##Statistically validate 
+ks.test(x = motifs.df %>% 
+          dplyr::filter(mapping_state %in% c('bind', 'both')) %>% .$seq_match, 
+        y = motifs.df %>% 
+          dplyr::filter(mapping_state %in% c('acc', 'both')) %>% .$seq_match)
+
+```
+
+## Frequency
+
+```{r}
+motifs.df %>%
+  dplyr::group_by(motif, mapping_state) %>%
+  dplyr::summarize(count = dplyr::n())
+```
+
+# Compare motif count to Avsec (2021)
+
+We mapped motifs without requiring a sequence match score criteria. How different are our results?
+
+## Import Avsec motifs
+
+```{r}
+avsec_motifs.path<-'/n/projects/mw2098/publications/2019_avsec_bpnet/data/tsv/dfi_subset.tsv'
+avsec_peaks.path<-'/n/projects/mw2098/publications/2019_avsec_bpnet/data/bed/peaks.bed'
+
+# motifs_w_metadata.gr<-motifs.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', strand.field = 'strand')
+# islands_resized_to_output.gr<-readRDS('rdata/mapped_motifs/all_islands_curated_1based_w_experimental_data.gr.rds')
+
+#Find where avsec peaks and our peaks overlap
+avsec_peaks.gr<-rtracklayer::import(avsec_peaks.path) %>%
+  subsetByOverlaps(islands_resized_to_output.gr, .)
+
+avsec_motifs.gr<-readr::read_tsv(avsec_motifs.path) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, seqnames.field = 'example_chrom', 
+                           start.field = 'pattern_start_abs', end.field = 'pattern_end_abs') %>%
+  plyranges::filter(pattern_name %in% names(motif_to_task.list)) %>%
+  plyranges::filter(pattern_name != 'Zic3')
+```
+
+## Curate Avsec motifs
+
+Curate Avsec motifs using the same rigor as our mapped hits. We need to consider motifs that are shared between the appropriate peak mapped sets as our baseline, as they are trained on slightly different regions.
+
+```{r}
+#Import peaks and reduce them to a deduplicated state to get general peak regions.
+p.gr<-avsec_peaks.gr %>% 
+  GenomicRanges::resize(., input_length, fix = 'center') %>% 
+  GenomicRanges::reduce(., ignore.strand = T) %>% 
+  plyranges::mutate(region_id_tmp = 1:length(.))
+
+#Find overlaps between motifs and peaks
+ov<-findOverlaps(avsec_motifs.gr, p.gr, ignore.strand = T)
+
+#Assign temporary region ID for deduplication
+avsec_motifs.gr$region_id_tmp<-NA
+avsec_motifs.gr$region_id_tmp[ov@from]<-p.gr$region_id_tmp[ov@to]
+
+#Filter any motif that doesn't fit into peaks. This means that the motif is mapped on the edges of the general, temporary region_id
+avsec_motifs.gr<-avsec_motifs.gr %>% plyranges::filter(!is.na(avsec_motifs.gr$region_id_tmp))
+
+#Deduplicate any motifs for palindromic mappings
+avsec_motifs_aligned.gr<-lapply(unique(avsec_motifs.gr$pattern_name), function(y){
+  print(y)
+  motifs.gr<-avsec_motifs.gr %>% plyranges::filter(pattern_name==y)
+  motifs_dedup.gr<-remove_palindromic_motifs_from_bpnet_instances(dfi = motifs.gr, 
+                                                                  pattern_to_filter = y, 
+                                                                  chrom_name = 'example_chrom', 
+                                                                  start_name = 'example_start', end_name = 'example_end', 
+                                                                  value_name = 'seq_match_p', motif_name = 'pattern_name',
+                                                                  region_name = 'region_id_tmp')
+  print(paste0(length(motifs_dedup.gr) , ' kept from ', length(motifs.gr)))
+  return(motifs_dedup.gr)
+}) %>% as('GRangesList') %>% unlist(.)
+
+#Remove Sox2 motifs overlapping with Oct4-Sox2 motif.
+sox2_motifs.gr<-avsec_motifs_aligned.gr %>% plyranges::filter(pattern_name=='Sox2')
+os_motifs.gr<-avsec_motifs_aligned.gr %>% plyranges::filter(pattern_name=='Oct4-Sox2')
+sox2_dedup_motifs.gr<-sox2_motifs.gr %>% plyranges::filter(!overlapsAny(sox2_motifs.gr, os_motifs.gr, ignore.strand = T))
+print(paste0('Sox2 motifs removed from OS redundancy: ', length(sox2_motifs.gr) - length(sox2_dedup_motifs.gr)))
+dedup_w_s.gr<-c(avsec_motifs_aligned.gr %>% plyranges::filter(pattern_name != 'Sox2'), sox2_dedup_motifs.gr)
+
+#Remove Oct4 motifs overlapping with Oct4-Sox2 motif.
+Oct4_motifs.gr<-dedup_w_s.gr %>% plyranges::filter(pattern_name=='Oct4')
+os_motifs.gr<-dedup_w_s.gr %>% plyranges::filter(pattern_name=='Oct4-Sox2')
+Oct4_dedup_motifs.gr<-Oct4_motifs.gr %>% plyranges::filter(!overlapsAny(Oct4_motifs.gr, os_motifs.gr, ignore.strand = T))
+print(paste0('Oct4 motifs removed from OS redundancy: ', length(Oct4_motifs.gr) - length(Oct4_dedup_motifs.gr)))
+dedup_w_o.gr<-c(dedup_w_s.gr %>% plyranges::filter(pattern_name != 'Oct4'), Oct4_dedup_motifs.gr)
+
+#Remove Nanog motifs overlapping with Sox2/Oct4-Sox2 motif.
+nanog_motifs.gr<-dedup_w_o.gr %>% plyranges::filter(pattern_name=='Nanog')
+other_motifs.gr<-dedup_w_o.gr %>% plyranges::filter(grepl('Sox2', pattern_name))
+nanog_dedup_motifs.gr<-nanog_motifs.gr %>% plyranges::filter(!overlapsAny(nanog_motifs.gr, other_motifs.gr, ignore.strand = T))
+print(paste0('Nanog motifs removed from OS/S redundancy: ', length(nanog_motifs.gr) - length(nanog_dedup_motifs.gr)))
+dedup_w_n.gr<-c(dedup_w_o.gr %>% plyranges::filter(pattern_name != 'Nanog'), nanog_dedup_motifs.gr)
+
+print(dedup_w_n.gr %>% as.data.frame %>% dplyr::group_by(pattern_name) %>% dplyr::summarize(counts = dplyr::n()))
+
+avsec_motifs_aligned.gr<-dedup_w_n.gr %>%
+  plyranges::arrange(pattern_name) %>%
+  plyranges::mutate(motif_id = 0:(length(.)-1)) %>%
+  plyranges::select(-c(region_id_tmp)) %>% 
+  subsetByOverlaps(., avsec_peaks.gr, ignore.strand = T)
+avsec_motifs_aligned.gr$pattern_name %>% table
+rtracklayer::export(avsec_motifs_aligned.gr %>% plyranges::mutate(name = pattern_name), 'bed/avsec_motifs_recurated.bed')
+
+# Filter new motifs by avsec peaks for fair comparison. 
+# This is done in a TF-specific manner as per the methods of the 2021 paper
+# (original modisco settings)
+new_motifs_aligned.gr<-motifs_w_metadata.gr %>% subsetByOverlaps(., avsec_peaks.gr, ignore.strand = T) %>%
+  plyranges::filter(motif != 'Zic3')
+new_motifs_aligned.gr$motif %>% table
+```
+
+## Compare Avsec motifs to newly mapped motifs
+
+First, compare relative numbers.
+
+```{r}
+consolidated.gr<-lapply(unique(avsec_motifs.gr$pattern_name), function(y){
+  print(y)
+  
+  #Collect metadata from avsec motifs and format to fit current motifs
+  a_motifs.gr<-avsec_motifs.gr %>% plyranges::filter(pattern_name==y) %>% plyranges::mutate(motif = pattern_name) %>% 
+    plyranges::select(motif) %>%
+    plyranges::mutate(motif_state = 'avsec_motifs')
+  a_vs_peaks.ov<-findOverlaps(a_motifs.gr, avsec_peaks.gr, ignore.strand = T)
+  a_motifs.gr$region_id<-NA
+  a_motifs.gr$region_id[a_vs_peaks.ov@from]<-avsec_peaks.gr$region_id[a_vs_peaks.ov@to]
+  
+  #Mark whether motifs are unique to the mapping sets
+  n_motifs.gr<-new_motifs_aligned.gr %>% plyranges::filter(motif==y) %>% 
+    plyranges::select(motif, region_id) %>%
+    plyranges::mutate(motif_state = 'current_motifs')
+  
+  a_vs_n.ov<-findOverlaps(n_motifs.gr, a_motifs.gr, ignore.strand = T)
+  
+  n_motifs.gr$motif_state[unique(a_vs_n.ov@from)]<-'both'
+  a_motifs.gr$motif_state[unique(a_vs_n.ov@to)]<-'both'
+
+  motifs.gr<-c(n_motifs.gr, a_motifs.gr %>% plyranges::filter(motif_state != 'both'))
+  return(motifs.gr)
+}) %>% as('GRangesList') %>% unlist(.) %>%
+  plyranges::mutate(motif = factor(motif, levels = c('Oct4-Sox2','Sox2','Nanog', 'Klf4', 'Oct4')))
+
+motif_count.plot<-ggplot(consolidated.gr %>% as.data.frame, aes(x = motif, fill = motif_state))+
+  geom_bar(position = 'dodge', color = 'black', linewidth = 1) + 
+  scale_fill_manual(values = c('#9e0142', '#5e4fa2', '#3288bd'))+
+  theme_classic()
+motif_count.plot
+ggsave(paste0(figure_filepath, '/motifs_vs_avsec_counts.png'), motif_count.plot, height = 4, width = 5)
+ggsave(paste0(figure_filepath, '/motifs_vs_avsec_counts.pdf'), motif_count.plot, height = 4, width = 5)
+
+consolidated.gr %>% 
+  as.data.frame %>%
+  dplyr::group_by(motif_state) %>%
+  dplyr::summarize(counts = dplyr::n())
+```
+
+Next, compare relative number of motifs per region.
+
+```{r}
+c.df<-consolidated.gr %>%
+  as.data.frame %>%
+  dplyr::mutate(avsec_state = ifelse(motif_state != 'current_motifs', T, F),
+                current_state = ifelse(motif_state != 'avsec_motifs', T, F))
+
+#Get current distribution
+dist.df<-rbind(
+  c.df %>% 
+    dplyr::filter(avsec_state) %>%
+    dplyr::group_by(region_id) %>%
+    dplyr::summarize(motif_count = dplyr::n()) %>%
+    dplyr::mutate(motif_state = 'avsec_motifs'),
+  c.df %>% 
+    dplyr::filter(current_state) %>%
+    dplyr::group_by(region_id) %>%
+    dplyr::summarize(motif_count = dplyr::n()) %>%
+    dplyr::mutate(motif_state = 'current_motifs')
+)
+
+region_group.plot<-ggplot(dist.df, aes(x = motif_count, fill = motif_state))+
+  geom_bar(position = 'dodge', linewidth = 1, color = 'black')+
+  scale_y_continuous(name = 'Number of regions')+
+  scale_x_continuous(name = 'Motifs per region', limits = c(.5, 10.5), breaks = seq(1, 10, 1))+
+  scale_fill_manual(values = c('#9e0142', '#3288bd'))+
+  theme_classic()
+region_group.plot
+ggsave(paste0(figure_filepath, '/motifs_vs_avsec_regions.png'), region_group.plot, height = 4, width = 5)
+ggsave(paste0(figure_filepath, '/motifs_vs_avsec_regions.pdf'), region_group.plot, height = 4, width = 5)
+
+#Test for significance within 10
+ks.test(dist.df %>% dplyr::filter(motif_state=='avsec_motifs') %>% 
+          dplyr::filter(motif_count>=2, motif_count<=10) %>% .$motif_count,
+        dist.df %>% dplyr::filter(motif_state=='current_motifs') %>% 
+          dplyr::filter(motif_count>=2, motif_count<=10) %>% .$motif_count,
+        simulate.p.value = T, alternative = "less")
+```
+
+Next compare our contribution scores across the new motifs and the shared motifs.
+
+```{r}
+filler<-mclapply(names(motif_to_task.list), function(x){
+  task_capitalized<-strsplit(motif_to_task.list[[x]], " ")[[1]]
+  task_capitalized<-paste(toupper(substring(task_capitalized, 1,1)), substring(task_capitalized, 2), sep="", collapse=" ")
+  avsec_importance.bw<-paste0('/n/projects/mw2098/publications/2019_avsec_bpnet/data/bw/predictions/', task_capitalized, '.importance.profile.bw')
+
+  if(x!='Zic3'){
+    ordered.gr<-consolidated.gr %>% 
+      plyranges::filter(motif_state != 'avsec_motifs', motif == x) %>%
+      plyranges::mutate(acc_contrib = regionSums(., 'shap/atac_wt_fold1_atac_counts.bw')) %>%
+      plyranges::arrange(motif_state, acc_contrib) 
+    avsec_importance.gr<-rtracklayer::import(avsec_importance.bw)
+    ordered.gr<-ordered.gr %>% plyranges::mutate(avsec_contrib = regionSums(., avsec_importance.bw)) %>% plyranges::filter(overlapsAny(., avsec_importance.gr))
+  } else {
+    ordered.gr<-motifs.gr %>% 
+      plyranges::filter(motif == x) %>%
+      plyranges::mutate(acc_contrib = regionSums(., 'shap/atac_wt_fold1_atac_counts.bw')) %>%
+      plyranges::arrange(acc_contrib) 
+  }
+  
+  ordered.gr$acc_contrib %>% summary()
+  ordered.gr$avsec_contrib %>% summary()
+  
+  scales::rescale(c(-2, 0, 0.005, 0.01, 0.1, .5, 10))
+  
+  acc_current_contrib.plot<-plot_standard_heatmap(regions.gr= resize(ordered.gr, 1, 'center'), 
+                                                  sample = 'shap/atac_wt_fold1_atac_counts.bw', 
+                                                  title = paste0('Current acc: ', x), order = 'asis', upstream = 10, downstream = 11, normalize = F) + 
+    # scale_fill_gradient2(high = 'black', low = 'purple', mid = 'white', midpoint = 0)+
+    scale_fill_gradient2(name = 'Motif type', high = '#b2182b', low = '#2166ac', mid = 'white', midpoint = 0)+
+    
+    # scale_fill_gradientn(colours = turbo(10), values = c(0, .25, .3, .35, .4, .45, .6, .65, 1))+
+    # scale_fill_gradientn(colours = turbo(4), values = scales::rescale(c(-2, 0, .5, 10)))+
+    # scale_fill_gradientn(colours = turbo(13), values = scales::rescale(c(-2, -.1, 0, .1, .5, .6, .7, .8, .9, 1, 2, 5)))+
+    theme()
+  
+  
+  bind_current_contrib.plot<-plot_standard_heatmap(regions.gr= resize(ordered.gr, 1, 'center'), 
+                                                   sample = paste0('shap/bpnet_osknz_fold1_', motif_to_task.list[[x]], '_counts.bw'), 
+                                                   title = paste0('Current bind: ', x), order = 'asis', upstream = 10, downstream = 11, normalize = F) + 
+    # scale_fill_gradient2(high = 'black', low = 'purple', mid = 'white', midpoint = 0)+
+    # scale_fill_gradientn(colours = turbo(10), values = c(0, .25, .3, .35, .4, .45, .6, .65, 1))+
+    # scale_fill_gradientn(colours = turbo(13), values = scales::rescale(c(-2, -.1, 0, .1, .5, .6, .7, .8, .9, 1, 2, 5)))+
+    scale_fill_gradient2(name = 'Motif type', high = '#b2182b', low = '#2166ac', mid = 'white', midpoint = 0)+
+  
+  theme()
+
+  
+  if(x=='Zic3'){bind_avsec_contrib.plot<-ggplot()}else{
+    bind_avsec_contrib.plot<-plot_standard_heatmap(regions.gr= resize(ordered.gr, 1, 'center'), 
+                                                   sample = avsec_importance.bw, 
+                                                   title = paste0('Avsec bind: ', x), order = 'asis', upstream = 10, downstream = 11, normalize = F) + 
+      # scale_fill_gradient2(high = 'black', low = 'purple', mid = 'white', midpoint = 0)+
+      # scale_fill_gradientn(colours = turbo(13), values = scales::rescale(c(-2, -.1, 0, .1, .5, .6, .7, .8, .9, 1, 2, 5)))+
+      scale_fill_gradient2(name = 'Motif type', high = '#b2182b', low = '#2166ac', mid = 'white', midpoint = 0)+
+      theme()
+  }
+  
+  contrib.plot<-acc_current_contrib.plot + bind_current_contrib.plot + bind_avsec_contrib.plot
+  
+  ggsave(paste0(figure_filepath, '/motifs_vs_avsec_contrib_heatmap_', x, '.png'), contrib.plot, height = 4, width = 8)
+  ggsave(paste0(figure_filepath, '/motifs_vs_avsec_contrib_heatmap_', x, '.pdf'), contrib.plot, height = 4, width = 8)
+  return(NULL)
+}, mc.cores = 5)
+```
+
+# Visualize metapeaks across motif hits
+
+```{r}
+atac_limits<-c(0, 5)
+flank_length<-200
+
+#Loop through each motif (not unique patterns, just consolidated motif).
+metapeak_plots.list<-mclapply(motifs_w_metadata.gr$motif %>% unique(), function(x){
+  
+  a.gr <- motifs_w_metadata.gr %>% plyranges::filter(motif == x, mapping_state %in% c('acc', 'both'))
+  b.gr <- motifs_w_metadata.gr %>% plyranges::filter(motif == x, mapping_state %in% c('bind', 'both'))
+  m.gr<-motifs_w_metadata.gr %>% plyranges::filter(motif == x)
+  
+  #Plot PWM
+  if(length(a.gr)>0){
+    a_pwm.plot<-ggseqlogo(a.gr$seq) + scale_y_continuous(limits = c(0, 2))
+  } else {
+    a_pwm.plot<-ggplot()
+  }
+  b_pwm.plot<-ggseqlogo(b.gr$seq) + scale_y_continuous(limits = c(0, 2))
+  
+  #Plot ATAC-seq
+  atac.df<-rbind(
+    standard_metapeak(gr = resize(m.gr, 1, 'center'),
+                             sample = atac_pred.bw, upstream = flank_length, downstream = flank_length) %>%
+      dplyr::mutate(type = 'pred'),
+    standard_metapeak(gr = resize(m.gr, 1, 'center'),
+                             sample = atac_obs.bw, upstream = flank_length, downstream = flank_length) %>%
+      dplyr::mutate(type = 'obs')
+  )
+  
+  atac.plot<-ggplot(atac.df, aes(x = tss_distance, y = reads, color = type))+
+    geom_line()+
+    scale_x_continuous(name = 'Motif position (bp)')+
+    scale_y_continuous(name = 'Predicted ATAC', limits = atac_limits)+
+    scale_color_manual(values = c('black','gray'))+
+    theme_classic() + theme(legend.position = 'none')
+
+  #Plot TF binding
+  nexus.df<-exo_metapeak(gr = resize(m.gr, 1, 'center'),
+                         sample = nexus.bw.list[[motif_to_task.list[[x]]]],
+                         upstream = flank_length, downstream = flank_length)
+  nexus.plot<-ggplot(nexus.df, aes(x = tss_distance, y = reads, group = strand))+
+    geom_line()+
+    scale_x_continuous(name = 'Motif position (bp)')+
+    scale_y_continuous(name = 'Norm. ChIP-nexus')+
+    theme_classic()
+  
+  showcase.plot <- b_pwm.plot + a_pwm.plot + nexus.plot + atac.plot + 
+    plot_layout(nrow = 1) +
+    plot_annotation(title = x)
+  
+  ggsave(paste0(figure_filepath, '/showcase_', x, '_hit_coverage.png'), showcase.plot, height = 3, width = 14)
+  ggsave(paste0(figure_filepath, '/showcase_', x, '_hit_coverage.pdf'), showcase.plot, height = 3, width = 14)
+  
+  return(showcase.plot)
+}, mc.cores = 6)
+
+metapeak_plots<-wrap_plots(metapeak_plots.list) + plot_layout(ncol =1)
+ggsave(paste0(figure_filepath, '/showcase_hit_coverage.png'), metapeak_plots, height = 10, width = 14)
+ggsave(paste0(figure_filepath, '/showcase_hit_coverage.pdf'), metapeak_plots, height = 10, width = 14)
+```
+
+## Showcase Oct4 fold3 motif
+
+Even though this pattern is the strongest of the Oct4 patterns, show that it doesn't return good binding or accessibility to confirm this isn't an important part of pioneering.
+
+```{r}
+m.gr<-readr::read_tsv('modiscolite/bpnet_osknz_fold3_oct4_counts/hits.tsv') %>%
+  dplyr::filter(metacluster_name == 'pos_patterns', pattern_name == 'pattern_31') %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T)
+
+m.gr<-m.gr %>% plyranges::filter(!overlapsAny(., motifs_w_metadata.gr, ignore.strand = T))
+
+m_n<-m.gr %>% GenomicRanges::reduce(ignore.strand = T) %>% length
+message('Non-redundant motif counts: ', m_n)
+
+#Plot PWM
+pwm.plot<-ggseqlogo(m.gr$sequence) + scale_y_continuous(limits = c(0, 2))
+
+#Plot ATAC-seq
+atac.df<-rbind(
+  standard_metapeak(gr = resize(m.gr, 1, 'center'),
+                    sample = atac_pred.bw, upstream = flank_length, downstream = flank_length) %>%
+    dplyr::mutate(type = 'pred'),
+  standard_metapeak(gr = resize(m.gr, 1, 'center'),
+                    sample = atac_obs.bw, upstream = flank_length, downstream = flank_length) %>%
+    dplyr::mutate(type = 'obs')
+)
+
+atac.plot<-ggplot(atac.df, aes(x = tss_distance, y = reads, color = type))+
+  geom_line()+
+  scale_x_continuous(name = 'Motif position (bp)')+
+  scale_y_continuous(name = 'Predicted ATAC', limits = atac_limits)+
+  scale_color_manual(values = c('black','gray'))+
+  theme_classic() + theme(legend.position = 'none')
+
+#Plot TF binding
+nexus.df<-exo_metapeak(gr = resize(m.gr, 1, 'center'),
+                       sample = nexus.bw.list[['oct4']],
+                       upstream = flank_length, downstream = flank_length)
+nexus.plot<-ggplot(nexus.df, aes(x = tss_distance, y = reads, group = strand))+
+  geom_line()+
+  scale_x_continuous(name = 'Motif position (bp)')+
+  scale_y_continuous(name = 'Norm. ChIP-nexus')+
+  theme_classic()
+
+showcase.plot <- pwm.plot + nexus.plot + atac.plot + 
+  plot_layout(nrow = 1) +
+  plot_annotation(title = 'FOLD3 Oct4')
+
+ggsave(paste0(figure_filepath, '/showcase_FOLD3_Oct4_hit_coverage.png'), showcase.plot, height = 3, width = 14)
+ggsave(paste0(figure_filepath, '/showcase_FOLD3_Oct4_hit_coverage.pdf'), showcase.plot, height = 3, width = 14)
+```
+
+# Plot replicate vs model comparisons
+
+```{r}
+all_performance.df<-readr::read_tsv('tsv/replicate_metrics.tsv.gz')
+
+formatted_pred_vs_obs_performance.df<-all_performance.df %>% 
+  dplyr::filter(is.na(rep1), fold==1, dataset == 'test') %>%
+  tidyr::separate(col = task, into = c('task', NA), sep = '_', remove = F) %>%
+  dplyr::group_by(model, task) %>%
+  dplyr::summarize(med_jsd = median(jsd),
+                   med_mnll = median(mnll),
+                   med_pcor = median(`counts-pearson`),
+                   med_scor = median(`counts-spearman`)) %>%
+  dplyr::mutate(comparison = 'pred_vs_obs')
+
+formatted_rep_vs_rep_performance.df<-all_performance.df %>% 
+  dplyr::filter(!is.na(rep1), dataset == 'test') %>%
+  tidyr::separate(col = rep1, into = c('fill1', 'fill2', 'fill3', 'fill4', NA, NA, NA), sep = '_', remove = F) %>%
+  as.data.frame() %>%
+  dplyr::mutate(model = ifelse(fill1 == 'GSE174774', paste0(fill3, '_', fill4), 'none'),
+                model = ifelse(fill3=='nexus', 'bpnet_osknz', model),
+                model = ifelse(fill2 == 'native', 'atac_wt', model)) %>%
+  dplyr::mutate(task = ifelse(model=='bpnet_osknz', fill2, 'atac')) %>%
+  dplyr::filter(((task=='atac' & grepl('cutsites', rep1)) & (task=='atac' & grepl('cutsites', rep2))) | (task != 'atac'),
+                model != 'none') %>%
+  dplyr::group_by(model, task) %>%
+  dplyr::summarize(med_jsd = median(jsd),
+                   med_mnll = median(mnll),
+                   med_pcor = median(`counts-pearson`),
+                   med_scor = median(`counts-spearman`)) %>%
+  dplyr::mutate(comparison = 'rep_vs_rep')
+
+performance.plot<-rbind(formatted_pred_vs_obs_performance.df, formatted_rep_vs_rep_performance.df) %>%
+  ggplot(., aes(x = task, y = med_jsd, fill = comparison))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  scale_y_continuous(limits = c(0, 1))+
+  facet_wrap(~ model, drop = T) +
+  theme_classic() + 
+rbind(formatted_pred_vs_obs_performance.df, formatted_rep_vs_rep_performance.df) %>%
+  ggplot(., aes(x = task, y = med_scor, fill = comparison))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  scale_y_continuous(limits = c(0, 1))+
+  facet_wrap(~ model, drop = T) +
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/performance_across pred_vs_rep.png'), height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/performance_across pred_vs_rep.pdf'), height = 4, width = 12)
+```
+
+# Conclusions
+
+In conclusion, motifs were curated based on multiple redundancies and saved to 1-based and 0-based coordinates. These will be the reference motifs that we base subsequent analysis on.
+
+We visualized coverage across the motifs as well as Oct4-Sox2 sequence heatmaps to show that the motifs are real and that they can be mapped as low affinity mtoifs.
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

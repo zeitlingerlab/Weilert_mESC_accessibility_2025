@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+mesc_R1_klf4_nexus_6	91112155	72758208	2863458	20642961	NA	NA	21.7	0.5816090610453215

@@ -1,0 +1,226 @@
+---
+title: "Generate mESC R1 CRISPR genomes"
+author: "Melanie Weilert"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    fig_width: 8
+    fig_height: 8
+    fig_caption: true
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{"Stowers Employee ID"}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options: 
+  chunk_output_type: console
+---
+
+# Introduction
+
+Here we are going to build custom genomes to accommodate alignment of data upon performing a loci-specific CRISPR experiment. 
+
+# Computational Setup
+
+```{r computational setup, message=F, warning=F}
+#Packages called are listed below:
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/0_setup/")
+dir.create('bed', showWarnings = F)
+dir.create('scripts', showWarnings = F)
+
+
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+#Lab sources
+source("../2_analysis/scripts/r/granges_common.r")
+```
+
+# Identify variables
+
+For each CRISPR experiment, identify the replaced sequences and different information scenarios.
+
+Please ensure that these are correct!
+
+```{r}
+mm10_genome <- getSeq(bsgenome)
+```
+
+Given the desired sequences that will be applied for CRISPR experiments, create .bed files of CRISPR coordinates. First, manually curate the data.
+
+```{r}
+coop_crispr.df<-readr::read_tsv('../2_analysis/tsv/genomic/crispr/crispr_coop_scenarios.tsv.gz') %>% as.data.frame
+context_crispr.df<-readr::read_tsv('../2_analysis/tsv/genomic/crispr/crispr_context_scenarios.tsv.gz') %>% as.data.frame
+
+
+all_crispr.df<-rbind(coop_crispr.df %>% dplyr::select(scenario, state, colnames(coop_crispr.df)[length(colnames(coop_crispr.df))]) %>%
+                       dplyr::mutate(seq_information = colnames(coop_crispr.df)[length(colnames(coop_crispr.df))],
+                                     seqnames = 'chr10',
+                                     enhancer_name = 'Btbd11') %>%
+                       dplyr::rename(replaced_seq = colnames(coop_crispr.df)[length(colnames(coop_crispr.df))]),
+                     context_crispr.df %>% dplyr::select(state, colnames(context_crispr.df)[length(colnames(context_crispr.df))]) %>%
+                       dplyr::mutate(seq_information = colnames(context_crispr.df)[length(colnames(context_crispr.df))],
+                                     seqnames = 'chr1',
+                                     enhancer_name = 'Akr1cl',
+                                     scenario = 'context') %>%
+                       dplyr::rename(replaced_seq = colnames(context_crispr.df)[length(colnames(context_crispr.df))])
+) %>%
+  dplyr::mutate(crispr_name = paste(enhancer_name, scenario, state, sep = '_')) %>%
+  tidyr::separate(col = seq_information, into = c(NA, NA, 'start', NA, 'end'), sep = '_') %>%
+  dplyr::mutate(start = as.integer(start),
+                end = as.integer(end))
+```
+
+Run some assertions to make sure the changed sequences hold true.
+
+```{r}
+#THIS OPERATES UNDER ASSUMPTIONS OF 0-BASED COORDINATES
+testit::assert('Coordinates of seq. dont match seq length', nchar(all_crispr.df$replaced_seq) == c(all_crispr.df$end - all_crispr.df$start))
+```
+
+Because this assertion passed, we now can say that `starts.in.df.are.0based = T`. Important distinction yall.
+
+```{r}
+#Derive coorresponding GRanges coordinates of changes
+all_crispr.gr<-makeGRangesFromDataFrame(all_crispr.df, keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+  plyranges::mutate(wt_seq = getSeq(bsgenome, ., as.character = T),
+                    name = crispr_name) 
+
+rtracklayer::export(all_crispr.gr, "bed/crispr_regions_of_interest.bed", format="BED")
+```
+
+# Validate CRISPR region site
+
+Is the information given in the introduction the same as UCSC annotates as WT? These checks will also be reflected in the function below.
+
+```{r}
+all_crispr.gr<-all_crispr.gr %>% plyranges::mutate(is_WT = replaced_seq==wt_seq) #these can operate off of WT sequence
+
+changed_crispr.gr<-all_crispr.gr %>% plyranges::filter(!is_WT)
+length(changed_crispr.gr)
+```
+
+Do these results make sense based off of the designed perturbations? Yes. The "WT" replaced sequences match the sequences gained from the WT reference.
+
+# Function to integrate CRISPR changes
+
+*Function inputs:*
+
++ genome_sequence: DNAStringSet object of getSeq(BSgenome)
++ region: GRanges of 1 coordinate (length=1) containing the region of interest
++ wt_sequence: string containing WT sequence
++ mutant_sequence: string containing mutant sequence
++ bw_genome: Desired BSGenome object
+
+*Function outputs:*
+
+DNAStringSet object with mutated sequence
+
+```{r}
+modify_fasta<-function(genome_sequence, region, wt_sequence, mutant_sequence, bs_genome){
+  
+  #Assert to make sure things are correctly used in the function
+  assert("The wt sequence and region coordinate are not the same width",
+         width(region)==nchar(wt_sequence))
+  assert("The wt and mutant sequences are not the same width",
+         width(mutant_sequence)==nchar(wt_sequence))
+  assert("The generated wt sequence and the given wt sequence are not the same", 
+         getSeq(bs_genome, region, as.character=T) == wt_sequence)
+  assert("The coordinate information is on the forward strand", 
+         all(strand(region)!="-"))
+   assert("There are too many regions.", 
+         length(region)==1) 
+   
+  #For each coordinate, motify `genome_sequence` to the mutant sequence
+  assert("WT sequence is not correctly matching the pulled sequence when modifying.",
+           nchar(genome_sequence[[seqnames(region)[1]]][start(region)[1]:end(region)[1]])==nchar(wt_sequence))
+  genome_sequence[[seqnames(region)[1]]][start(region)[1]:end(region)[1]]<-DNAString(mutant_sequence)
+  
+  return(genome_sequence)
+}
+```
+
+# Integrate CRISPR changes
+
+Run function defined above for each mutant. We will actually pretend that the WT sequences are also a mutant, just to make sure that all aligned CRISPR clone experiments (whether theyre mutated or WT) use the same `bsgenome` reference (changed or unchanged).
+
+```{r}
+genomes.list<-lapply(1:length(all_crispr.gr), function(x){
+  
+  crispr.gr<-all_crispr.gr[x]
+  message(crispr.gr$name, ', is WT:', crispr.gr$is_WT)
+  genome<-modify_fasta(genome_sequence = mm10_genome, 
+                       bs_genome = bsgenome,
+                       region = crispr.gr, 
+                       wt_sequence = crispr.gr$wt_seq, mutant_sequence = crispr.gr$replaced_seq)
+  
+  writeXStringSet(genome,paste0("fa/", crispr.gr$crispr_name, ".fa"),
+                  append=FALSE, compress=F, compression_level=NA, format="fasta")
+  return(genome)
+})
+names(genomes.list)<-all_crispr.gr$crispr_name
+```
+
+Make sure to manually check these .fa files!
+
+# Generate bowtie indexes
+
+Generate bowtie indexes for alignment, run the `sbatch` commands in the HPC.
+
+```{R}
+filler<-lapply(names(genomes.list), function(x){
+  cmds_all.vec<-c('#!/bin/bash', 
+                  '#SBATCH --job-name=bowtie_indexes',
+                  '#SBATCH --ntasks=1',
+                  '#SBATCH --cpus-per-task=10',
+                  '#SBATCH --mem=100gb',
+                  '#SBATCH --time=48:00:00',
+                  '#SBATCH --output=slurm_%j.log',
+                  'source /home/mw2098/.bashrc',
+                  'module load zeitlinger', 
+                  'cd /n/projects/mw2098/publications/2024_weilert_acc/code/0_setup/',
+                  paste0('bowtie2-build fa/', x, '.fa ../1_processing/indexes/bowtie2/', x))
+  writeLines(cmds_all.vec, paste0('scripts/generate_indexes_', x, '.slurm'))
+  print(paste0('sbatch scripts/generate_indexes_', x, '.slurm'))
+})
+```
+
+# Session information
+
+For reproducibility, this analysis was performed with the following R/Bioconductor session:
+
+``` {r session_info, echo=FALSE, comment=NA}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

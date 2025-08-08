@@ -1,0 +1,602 @@
+---
+title: 'Visualize and interpret kinetics data'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this document is to visualize the kinetics simulations produced earlier and to summarize outcomes of accessibility and binding to interpret different modes of cooperativity.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/19_visualize_kinetics"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(ggseqlogo)
+library(ggrastr)
+library(basicdrm)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+kinetics.path<-'tsv/kinetics/kinetics_8state_scenarios.tsv.gz'
+
+conc_levels.df<-readr::read_tsv('tsv/kinetics/conc_by_seq.tsv.gz') %>% 
+  dplyr::mutate(conc_levels = 1:nrow(.),
+                log10_kon = log10(kon))
+conc_levels_n<-nrow(conc_levels.df)
+```
+
+# Plot S/S
+
+In the event of plausible Sox2/Sox2 motif binding and pioneering, what cooperativity emerges from the accessibility (as represented by p(open) at the two states)?
+
+```{r}
+#Set limits
+marginal_limits <- c(0, .85)
+joint_limits <- c(0, .85)
+```
+We want to explain some features. For this, we will classify certain components.
+
+```{r}
+s_vs_s.df<-readr::read_tsv('tsv/kinetics/kinetics_8state_scenarios_SvsS.tsv.gz') 
+
+s_vs_s_acc.plot<-ggplot(s_vs_s.df, aes(x = acc_marg, y = acc_joint))+
+  geom_abline(slope = 1, intercept = 0, linetype = 'dashed')+
+  ggrastr::geom_point_rast(size = .1)+
+  # ggrastr::geom_point_rast(aes(color = a1Bvals + a1Avals), size = .1)+
+  scale_x_continuous(limits = marginal_limits, name = 'Marginal p(open)')+
+  scale_y_continuous(limits = joint_limits, name = 'Joint p(open)')+
+  
+  ggtitle('S vs S')+
+  theme_classic() + theme(legend.position = 'none')
+s_vs_s_acc.plot
+```
+
+# Plot S/OS
+
+In the event of plausible Sox2/Oct4-Sox2 motif binding and pioneering, what cooperativity emerges from the accessibility (as represented by p(open) at the two states)?
+
+```{r}
+s_vs_os.df<-readr::read_tsv('tsv/kinetics/kinetics_8state_scenarios_SvsOS.tsv.gz') %>%
+  dplyr::mutate(a1Avals_bin = cut(a1Avals, breaks = c(0, 3, 7, 10), include.lowest = T))
+
+s_vs_os_acc.plot<-ggplot(s_vs_os.df, aes(x = acc_marg, y = acc_joint))+
+  geom_abline(slope = 1, intercept = 0, linetype = 'dashed')+
+  ggrastr::geom_point_rast(size = .1)+
+  # ggrastr::geom_point_rast(aes(color = a1Avals_bin), size = .1)+
+  scale_x_continuous(limits = marginal_limits, name = 'Marginal p(open)')+
+  scale_y_continuous(limits = joint_limits, name = 'Joint p(open)')+
+  # scale_color_manual(values = viridis(n=3))+
+  ggtitle('S vs OS')+
+  theme_classic() + theme(legend.position = 'none')
+s_vs_os_acc.plot
+```
+
+Consolidate and output.
+
+```{r}
+plot<-s_vs_s_acc.plot + s_vs_os_acc.plot + plot_layout(nrow = 1, widths = c(1, 1))
+ggsave(paste0(figure_filepath, '/joint_vs_marg_S_vs_OS.png'), height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/joint_vs_marg_S_vs_OS.pdf'), height = 4, width = 8)
+```
+
+# Plot concentration effects
+
+Here, we will select a series of parameters over changing concentrations such that we can show (1) accessibility is higher when two TFs pioneer than when one does (this is superadditive) and (2) cooperativity (relative) peaks at different concentrations for different affinities.
+
+## S/S
+
+Plot Sox2 effects (A) when concentration of Sox2 (A) is changing and BOTH affinities of Sox2 (A) and Sox2 (B) is changing.
+
+```{r}
+conc.df<-Sys.glob('tsv/kinetics/s_sameclosing=True_*_a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5.tsv.gz') %>%
+  lapply(., function(x){
+
+    #Rows are trials, comma separators are the concentrations
+    coop.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_coopvals', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_coopvals') %>% dplyr::select(acc_coopvals, conc_levels, trial)%>%
+      dplyr::mutate(acc_coopvals = as.numeric(acc_coopvals))
+    A_only.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_Aonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Aonly') %>% dplyr::select(acc_Aonly, conc_levels, trial) %>%
+      dplyr::mutate(acc_Aonly = as.numeric(acc_Aonly))
+    AB.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_AB', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_AB') %>% dplyr::select(acc_AB, conc_levels, trial)%>%
+      dplyr::mutate(acc_AB = as.numeric(acc_AB))
+    
+    #Assign parameters in case people are interested
+     parameter_order<-c('kon', 'konB', 'koff1nA','koff1nB','gA','gB','betanA', 'betanB', 'betamA', 'betamB','h0','h1', 'kopen0','kclose0', 'a1nA', 'a1nB', 'a1nAB', 'a1mA', 'a1mB', 'a1mAnB', 'a1nAmB', 'a1mAmB', 'a2nA', 'a2nB', 'a2nAB', 'a2mA', 'a2mB', 'a2mAnB', 'a2nAmB', 'a2mAmB')
+    parameters.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'parset', sep = ',', into = parameter_order) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>% dplyr::select(trial, parameter_order) %>% dplyr::select(-kon)
+    
+    df<-coop.df %>% 
+      left_join(A_only.df) %>% 
+      left_join(AB.df) %>%
+      dplyr::left_join(parameters.df) %>% 
+      dplyr::mutate(g_class = basename(x) %>% stringr::str_split(., '_') %>% unlist() %>% .[3]) %>%
+      dplyr::mutate(conc_levels = as.integer(conc_levels)) %>%
+      dplyr::left_join(conc_levels.df)
+    
+    return(df)
+}) %>% rbindlist()
+
+
+colors<-RColorBrewer::brewer.pal(n=4, name="Blues")
+colors<-c('#bdc9e1','#74a9cf','#2b8cbe','#045a8d')
+#Visualize features
+single.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_Aonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line() + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Acc. A only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+double.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_AB, color = g_class, group = interaction(trial, g_class)))+
+  geom_line() + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. AB together', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_coopvals, color = g_class, group = interaction(trial, g_class)))+
+  geom_line() + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. Coop')+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+conc.plots<-single.plot + double.plot + coop.plot + plot_layout(nrow = 1)
+ggsave(paste0(figure_filepath, '/conc_S_vs_S.png'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_S_vs_S.pdf'), conc.plots, height = 4, width = 12)
+
+```
+
+## OS/S 
+
+Plot Oct4-Sox2 effects (A) when concentration of Oct4-Sox2 (A) is changing and ONLY affinities of Oct4-Sox2 (A) is changing.
+
+## Open region, middling pioneering
+
+```{r}
+conc.df<-Sys.glob('tsv/kinetics/os_sameclosing=True_*_a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5.tsv.gz') %>%
+  lapply(., function(x){
+
+    #Rows are trials, comma separators are the concentrations
+    coop.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_coopvals', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_coopvals') %>% dplyr::select(acc_coopvals, conc_levels, trial)%>%
+      dplyr::mutate(acc_coopvals = as.numeric(acc_coopvals))
+    A_only.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_Aonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Aonly') %>% dplyr::select(acc_Aonly, conc_levels, trial) %>%
+      dplyr::mutate(acc_Aonly = as.numeric(acc_Aonly))
+    B_only.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_Bonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Bonly') %>% dplyr::select(acc_Bonly, conc_levels, trial) %>%
+      dplyr::mutate(acc_Bonly = as.numeric(acc_Bonly))
+    AB.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_AB', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_AB') %>% dplyr::select(acc_AB, conc_levels, trial) %>%
+      dplyr::mutate(acc_AB = as.numeric(acc_AB))
+    
+    
+    bindAonly.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'bind_Aonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'bind_Aonly') %>% dplyr::select(bind_Aonly, conc_levels, trial) %>%
+      dplyr::mutate(bind_Aonly = as.numeric(bind_Aonly))
+        
+    bindBonly.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'bind_Bonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'bind_Bonly') %>% dplyr::select(bind_Bonly, conc_levels, trial) %>%
+      dplyr::mutate(bind_Bonly = as.numeric(bind_Bonly))
+            
+    bindA_AB.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'bindA_ABonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'bindA_ABonly') %>% dplyr::select(bindA_ABonly, conc_levels, trial) %>%
+      dplyr::mutate(bindA_ABonly = as.numeric(bindA_ABonly))
+    
+    #Assign parameters in case people are interested
+     parameter_order<-c('kon', 'konB', 'koff1nA','koff1nB','gA','gB','betanA', 'betanB', 'betamA', 'betamB','h0','h1', 'kopen0','kclose0', 'a1nA', 'a1nB', 'a1nAB', 'a1mA', 'a1mB', 'a1mAnB', 'a1nAmB', 'a1mAmB', 'a2nA', 'a2nB', 'a2nAB', 'a2mA', 'a2mB', 'a2mAnB', 'a2nAmB', 'a2mAmB')
+    parameters.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'parset', sep = ',', into = parameter_order) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>% dplyr::select(trial, parameter_order) %>% dplyr::select(-kon)
+    
+    df<-coop.df %>% 
+      left_join(A_only.df) %>% 
+      left_join(B_only.df) %>% 
+      left_join(AB.df) %>%
+      
+      left_join(bindAonly.df) %>% 
+      left_join(bindBonly.df) %>% 
+      left_join(bindA_AB.df) %>%
+      
+      dplyr::left_join(parameters.df) %>% 
+      dplyr::mutate(g_class = basename(x) %>% stringr::str_split(., '_') %>% unlist() %>% .[3]) %>%
+      dplyr::mutate(conc_levels = as.integer(conc_levels)) %>%
+      dplyr::left_join(conc_levels.df)
+    
+    return(df)
+}) %>% rbindlist()
+
+
+colors<-RColorBrewer::brewer.pal(n=4, name="Blues")
+colors<-c('#bdc9e1','#74a9cf','#2b8cbe','#045a8d')
+#Visualize features
+single.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_Aonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Acc. A only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+singleB.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_Bonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Acc. B only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+double.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_AB, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. AB together', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_coopvals, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. Coop', limits = c(0, 2))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+conc.plots<-single.plot + singleB.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')
+conc.plots
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering.png'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering.pdf'), conc.plots, height = 4, width = 12)
+```
+
+Plot binding occupancy over changing concentrations
+
+```{r}
+#Visualize features
+single.plot<-ggplot(conc.df, aes(x = log10_kon, y = bind_Aonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Bind. A only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+singleB.plot<-ggplot(conc.df, aes(x = log10_kon, y = bind_Bonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Bind. B only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+double.plot<-ggplot(conc.df, aes(x = log10_kon, y = bindA_ABonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Bind. AB together', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+conc.plots<-single.plot + singleB.plot + double.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', 
+                                                                                               subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')
+conc.plots
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering_binding_occupancy.png'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering_binding_occupancy.pdf'), conc.plots, height = 4, width = 12)
+
+```
+
+### Hill coefficients
+
+Calculate Hill coefficients for each of these features. Better documentation comes from another package (https://search.r-project.org/CRAN/refmans/braidrm/html/findBestHill.html). 
+
+```{r, eval = F}
+#Calculate median scores across trials
+conc_summary.df<-conc.df %>%
+  dplyr::group_by(g_class, kon) %>%
+  dplyr::summarize(med_acc_Aonly = median(acc_Aonly),
+                   med_acc_Bonly = median(acc_Bonly),
+                   med_acc_AB = median(acc_AB))
+
+hill_fit_model<-'m3plc'
+
+#Calculate Hill coefficient where max is the plateau ceiling
+max_is_ceiling.df<-lapply(conc_summary.df$g_class %>% unique, function(x){
+  c.df<-conc_summary.df %>% dplyr::filter(g_class==x)
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_Aonly,
+                                   defaults = c(0, max(c.df$med_acc_Aonly)))
+  A.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'A_only')
+
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_Bonly,,
+                                   defaults = c(0, max(c.df$med_acc_Bonly)))
+  B.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'B_only')
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_AB,,
+                                   defaults = c(0, max(c.df$med_acc_AB)))
+  AB.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'AB')
+
+  return(rbind(A.df, B.df, AB.df))
+}) %>% rbindlist()
+print(max_is_ceiling.df)
+
+#Calculate Hill coefficient where p(open)=1 is the plateau ceiling
+p100_is_ceiling.df<-lapply(conc_summary.df$g_class %>% unique, function(x){
+  c.df<-conc_summary.df %>% dplyr::filter(g_class==x)
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_Aonly,
+                                   defaults = c(0, 1))
+  A.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'A_only')
+
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_Bonly,,
+                                   defaults = c(0, 1))
+  B.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'B_only')
+
+  fit<-basicdrm::findBestHillModel(formula = c.df$kon, data = c.df$med_acc_AB,,
+                                   defaults = c(0,1))
+  AB.df<-fit$allfits[[hill_fit_model]]$coefficients %>% t()  %>% as.data.frame() %>%
+    dplyr::mutate(gA = x,
+                  state = 'AB')
+
+  return(rbind(A.df, B.df, AB.df))
+}) %>% rbindlist()
+print(p100_is_ceiling.df)
+```
+
+Confirms that Hill coefficient of this curve is 1 or 10 (non log space) regardless of how you calculate it. Alone vs cooperative doesn't change that.
+
+## Closed region, strong pioneering
+
+```{r}
+conc.df<-Sys.glob('tsv/kinetics/os_sameclosing=True_*_a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5.tsv.gz') %>%
+  lapply(., function(x){
+
+    #Rows are trials, comma separators are the concentrations
+    coop.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_coopvals', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_coopvals') %>% dplyr::select(acc_coopvals, conc_levels, trial)%>%
+      dplyr::mutate(acc_coopvals = as.numeric(acc_coopvals))
+    A_only.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_Aonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Aonly') %>% dplyr::select(acc_Aonly, conc_levels, trial) %>%
+      dplyr::mutate(acc_Aonly = as.numeric(acc_Aonly))
+    AB.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'acc_AB', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>%
+      tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_AB') %>% dplyr::select(acc_AB, conc_levels, trial)%>%
+      dplyr::mutate(acc_AB = as.numeric(acc_AB))
+    
+    #Assign parameters in case people are interested
+     parameter_order<-c('kon', 'konB', 'koff1nA','koff1nB','gA','gB','betanA', 'betanB', 'betamA', 'betamB','h0','h1', 'kopen0','kclose0', 'a1nA', 'a1nB', 'a1nAB', 'a1mA', 'a1mB', 'a1mAnB', 'a1nAmB', 'a1mAmB', 'a2nA', 'a2nB', 'a2nAB', 'a2mA', 'a2mB', 'a2mAnB', 'a2nAmB', 'a2mAmB')
+    parameters.df<-readr::read_tsv(x) %>% tidyr::separate(col = 'parset', sep = ',', into = parameter_order) %>%
+      dplyr::mutate(trial = 1:nrow(.)) %>% dplyr::select(trial, parameter_order) %>% dplyr::select(-kon)
+    
+    df<-coop.df %>% 
+      left_join(A_only.df) %>% 
+      left_join(AB.df) %>%
+      dplyr::left_join(parameters.df) %>% 
+      dplyr::mutate(g_class = basename(x) %>% stringr::str_split(., '_') %>% unlist() %>% .[3]) %>%
+      dplyr::mutate(conc_levels = as.integer(conc_levels)) %>%
+      dplyr::left_join(conc_levels.df)
+    
+    return(df)
+}) %>% rbindlist()
+
+
+colors<-RColorBrewer::brewer.pal(n=4, name="Blues")
+colors<-c('#bdc9e1','#74a9cf','#2b8cbe','#045a8d')
+#Visualize features
+single.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_Aonly, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Acc. A only', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+double.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_AB, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. AB together', limits = c(0, 1))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+coop.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_coopvals, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on)')+
+  scale_y_continuous(name = 'Acc. Coop', limits = c(0, 2))+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  theme_classic() + theme(legend.position = 'bottom')
+
+
+conc.plots<-single.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', subtitle = 'a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5')
+conc.plots
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_closed_region_strong_pioneering.png'), conc.plots, height = 4, width = 9)
+ggsave(paste0(figure_filepath, '/conc_OS_vs_S_closed_region_strong_pioneering.pdf'), conc.plots, height = 4, width = 9)
+
+```
+
+# Run parameter controls (Sox2 alone)
+
+## Non-equilibrium
+
+Show that g, o, c, betam, and d have differential effects on concentration curves according to our models. 
+
+```{r}
+controls.df<-readr::read_tsv('tsv/kinetics/kinetics_8state_parameter_controls_for_Aonly_sox2.tsv') 
+control_key.list<-list(affinity = 'gA', opening = 'a1mA', closing = 'a2mA', d = 'kclose0', betam = 'betamA')
+
+controls_formatted.plot<-lapply(controls.df$control %>% unique, function(x){
+  print(x)
+  
+  #Rows are trials, comma separators are the concentrations
+  A_only.df<-controls.df %>% dplyr::filter(control==x) %>% dplyr::mutate(parameter_range = 1:nrow(.)) %>% tidyr::separate(col = 'acc_Aonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+    tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Aonly') %>% 
+    dplyr::select(acc_Aonly, conc_levels, parameter_range) %>%
+    dplyr::mutate(acc_Aonly = as.numeric(acc_Aonly))
+  
+  B_only.df<-controls.df %>% dplyr::filter(control==x) %>% dplyr::mutate(parameter_range = 1:nrow(.)) %>% tidyr::separate(col = 'acc_Bonly', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+    tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_Bonly') %>% 
+    dplyr::select(acc_Bonly, conc_levels, parameter_range) %>%
+    dplyr::mutate(acc_Bonly = as.numeric(acc_Bonly))
+  
+  #Assign parameters in case people are interested
+  parameter_order<-c('kon', 'konB', 'koff1nA','koff1nB','gA','gB','betanA', 'betanB', 'betamA', 'betamB','h0','h1', 'kopen0','kclose0', 'a1nA', 'a1nB', 'a1nAB', 'a1mA', 'a1mB', 'a1mAnB', 'a1nAmB', 'a1mAmB', 'a2nA', 'a2nB', 'a2nAB', 'a2mA', 'a2mB', 'a2mAnB', 'a2nAmB', 'a2mAmB')
+  parameters.df<-controls.df %>% dplyr::filter(control==x) %>% dplyr::mutate(parameter_range = 1:nrow(.)) %>% tidyr::separate(col = 'parset', sep = ',', into = parameter_order) %>% dplyr::select(parameter_order, parameter_range) %>% dplyr::select(-kon) %>% as.data.frame()
+  
+  df<-A_only.df %>% 
+    dplyr::left_join(B_only.df) %>%
+    dplyr::left_join(parameters.df) %>% 
+    dplyr::mutate(parameter_of_interest = !!sym(control_key.list[[x]])) %>%
+    dplyr::select(acc_Aonly, acc_Bonly, conc_levels, parameter_range, parameter_of_interest) %>% 
+    dplyr::mutate(conc_levels = as.integer(conc_levels)) %>%
+    dplyr::left_join(conc_levels.df)
+  
+  colors<-c('#bdc9e1','#74a9cf','#2b8cbe','#045a8d', '#08306b')
+  #Visualize features
+  single.plot<-ggplot(df, aes(x = log10_kon, y = acc_Aonly, color = parameter_of_interest))+
+    geom_line(size = 1) + 
+    geom_line(aes(y = acc_Bonly, group = parameter_of_interest), color = 'red', size = 1) + 
+    scale_x_continuous(name = 'log10(k_on) of A')+
+    scale_y_continuous(name = 'Acc. A only', limits = c(0, 1))+
+    scale_color_manual(values = rev(colors), name = x)+
+    ggtitle('Sox2 on Sox2 motif', subtitle = x)+
+    theme_classic() + theme(legend.position = 'bottom')
+  single.plot
+  
+  return(single.plot)
+  
+}) %>% wrap_plots(nrow = 1)
+
+controls_formatted.plot
+ggsave(paste0(figure_filepath, '/conc_S_parameter_controls.png'), controls_formatted.plot, height = 4, width = 20)
+ggsave(paste0(figure_filepath, '/conc_S_parameter_controls.pdf'), controls_formatted.plot, height = 4, width = 20)
+```
+
+
+## Equilibrium
+
+Show that g, betam, and d have differential effects on concentration curves according to our models. 
+
+```{r}
+controls.df<-readr::read_tsv('tsv/kinetics/kinetics_4state_parameter_controls_for_equilibrium_sox2.tsv') 
+control_key.list<-list(affinity = 'gA', d = 'kclose0', betam = 'betamA')
+
+controls_formatted.plot<-lapply(controls.df$control %>% unique, function(x){
+  print(x)
+  
+  #Rows are trials, comma separators are the concentrations
+  A_only.df<-controls.df %>% dplyr::filter(control==x) %>% dplyr::mutate(parameter_range = 1:nrow(.)) %>% tidyr::separate(col = 'acc_A', sep = ',', into = c(1:conc_levels_n) %>% as.character) %>%
+    tidyr::pivot_longer(cols = c(1:conc_levels_n) %>% as.character, names_to = 'conc_levels', values_to = 'acc_A') %>% 
+    dplyr::select(acc_A, conc_levels, parameter_range) %>%
+    dplyr::mutate(acc_A = as.numeric(acc_A))
+  
+  #Assign parameters in case people are interested
+  parameter_order<-c('kon', 'koff1nA','gA','betanA', 'betamA','kopen0','kclose0', 'a1nA', 'a1mA','a2nA', 'a2mA')
+  parameters.df<-controls.df %>% dplyr::filter(control==x) %>% dplyr::mutate(parameter_range = 1:nrow(.)) %>% tidyr::separate(col = 'parset', sep = ',', into = parameter_order) %>% dplyr::select(parameter_order, parameter_range) %>% dplyr::select(-kon) %>% as.data.frame()
+  
+  df<-A_only.df %>% 
+    dplyr::left_join(parameters.df) %>% 
+    dplyr::mutate(parameter_of_interest = !!sym(control_key.list[[x]])) %>%
+    dplyr::select(acc_A, conc_levels, parameter_range, parameter_of_interest) %>% 
+    dplyr::mutate(conc_levels = as.integer(conc_levels)) %>%
+    dplyr::left_join(conc_levels.df)
+  
+  colors<-c('#bdc9e1','#74a9cf','#2b8cbe','#045a8d', '#08306b')
+  #Visualize features
+  single.plot<-ggplot(df, aes(x = log10_kon, y = acc_A, color = parameter_of_interest))+
+    geom_line(size = 1) + 
+    scale_x_continuous(name = 'log10(k_on) of A')+
+    scale_y_continuous(name = 'Acc. A only', limits = c(0, 1))+
+    scale_color_manual(values = rev(colors), name = x)+
+    ggtitle('Sox2 on Sox2 motif', subtitle = x)+
+    theme_classic() + theme(legend.position = 'bottom')
+  single.plot
+  
+  return(single.plot)
+  
+}) %>% wrap_plots(nrow = 1)
+
+controls_formatted.plot
+ggsave(paste0(figure_filepath, '/conc_S_parameter_controls_equilibrium.png'), controls_formatted.plot, height = 4, width = 20)
+ggsave(paste0(figure_filepath, '/conc_S_parameter_controls_equilibrium.pdf'), controls_formatted.plot, height = 4, width = 20)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

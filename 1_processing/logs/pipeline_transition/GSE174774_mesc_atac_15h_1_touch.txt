@@ -1,0 +1,1 @@
+/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/GSE174774_mesc_atac_15h_1.bw

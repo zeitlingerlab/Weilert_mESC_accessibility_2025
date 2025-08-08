@@ -1,0 +1,293 @@
+---
+title: 'Data preparation for model training and analysis'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this .Rmd is to prepare all aligned samples and published data for deep learning training and downstream analysis. 
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-'figures/1_prepare_data'
+options(knitr.figure_dir=figure_filepath)
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+
+#Options and configurations
+set.seed(seed = 10)
+output_seqlen<-1000
+low_count_threshold = .5
+dir.create('bw', showWarnings = F)
+dir.create('idr', showWarnings = F)
+dir.create('bam', showWarnings = F)
+dir.create('macs2', showWarnings = F)
+
+#Custom variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+samples.xlsx<-'../0_setup/4_define_samples.xlsx'
+```
+
+# Import sample names
+
+```{r}
+samples.df<-readxl::read_xlsx(samples.xlsx) %>% as.data.frame %>%
+  dplyr::mutate(sample_group = sub("_[^_]+$", "", sample_name),
+                sample_rep = stringr::str_extract(pattern = "_[^_]+$", sample_name) %>% 
+                  gsub('_', '', .) %>% 
+                  as.integer())
+```
+
+# Generate and format coverage data
+
+For each coverage set assign model organism information, pool, normalize, and export formatted replicate and processed coverage for downstream analysis. 
+
+```{r, eval = F}
+all_samples<-samples.df$sample_group %>% unique()
+featured_samples<-all_samples %>% grep('overy', ., value = T) 
+# featured_samples<-samples.df %>% dplyr::filter(reference_genome=='Akr1cl_context_AB') %>% .$sample_group %>% unique()
+
+filler<-mclapply(featured_samples, function(x){
+  message(x)
+  if(grepl('atac', x)){
+    
+    #Format and export cutsites
+    cutsites.paths<-Sys.glob(paste0('../1_processing/bw/', x, '*_cutsites.bw'))
+    cutsites_combined.list<-lapply(cutsites.paths, function(y){
+      bw<-rtracklayer::import(y)
+      bw$score<-abs(bw$score)
+      seqlevels(bw)<-seqlevels(bsgenome)
+      seqinfo(bw)<-seqinfo(bsgenome)
+      rtracklayer::export(bw, paste0('bw/', basename(y)))
+      cov<-coverage(bw, weight = bw$score)
+      
+      #Normalize individual tracks
+      sample_reads<-(bw$score %>% sum)/2
+      cov.norm<-cov/sample_reads*1000000
+      rtracklayer::export(cov.norm, gsub('_cutsites.bw','_cutsites_normalized.bw', y), format = "BigWig") 
+      
+      return(cov)
+    })
+    cutsites_combined.bw<-Reduce(f = "+", x = cutsites_combined.list)
+    rtracklayer::export(cutsites_combined.bw, paste0('bw/', x, '_cutsites_combined.bw'), format = "BigWig")
+    
+    #Format and export fragment coverage
+    fragments.paths<-Sys.glob(paste0('../1_processing/bw/', x, '_[0-9].bw'))
+    fragments_combined.list<-lapply(fragments.paths, function(y){
+      bw<-rtracklayer::import(y)
+      bw$score<-abs(bw$score)
+      seqlevels(bw)<-seqlevels(bsgenome)
+      seqinfo(bw)<-seqinfo(bsgenome)
+      rtracklayer::export(bw, paste0('bw/', basename(y)))
+      cov<-coverage(bw, weight = bw$score)
+      return(cov)
+    })
+    fragments_combined.bw<-Reduce(f = "+", x = fragments_combined.list)
+    rtracklayer::export(fragments_combined.bw, paste0('bw/', x, '_combined.bw'), format = "BigWig")   
+      
+    #Normalize and export pooled samples
+    total_reads<-(lapply(cutsites_combined.bw, function(x) return(x@values %>% sum)) %>% unlist %>% sum)/2
+    cutsites_rpm.bw<-cutsites_combined.bw/total_reads*1000000
+    rtracklayer::export(cutsites_rpm.bw, paste0('bw/', x, '_cutsites_combined_normalized.bw'), format = "BigWig")
+    
+    fragments_rpm.bw<-fragments_combined.bw/total_reads*1000000
+    rtracklayer::export(fragments_rpm.bw, paste0('bw/', x, '_combined_normalized.bw'), format = "BigWig")   
+  } else if (grepl('nexus', x)){
+    #Format and export positive and negative strand coverage
+    pos.paths<-Sys.glob(paste0('../1_processing/bw/', x, '_*_positive.bw'))
+    neg.paths<-Sys.glob(paste0('../1_processing/bw/', x, '_*_negative.bw'))
+    
+    pos_combined.list<-lapply(pos.paths, function(y){
+      bw<-rtracklayer::import(y)
+      bw$score<-abs(bw$score)
+      seqlevels(bw)<-seqlevels(bsgenome)
+      seqinfo(bw)<-seqinfo(bsgenome)
+      rtracklayer::export(bw, paste0('bw/', basename(y)))
+      cov<-coverage(bw, weight = bw$score)
+      return(cov)
+    })   
+    pos_combined.bw<-Reduce(f = "+", x = pos_combined.list)
+    rtracklayer::export(pos_combined.bw, paste0('bw/', x, '_combined_positive.bw'), format = "BigWig")
+
+    neg_combined.list<-lapply(neg.paths, function(y){
+      bw<-rtracklayer::import(y)
+      bw$score<-abs(bw$score)
+      seqlevels(bw)<-seqlevels(bsgenome)
+      seqinfo(bw)<-seqinfo(bsgenome)
+      rtracklayer::export(bw, paste0('bw/', basename(y)))
+      cov<-coverage(bw, weight = bw$score)
+      return(cov)
+    })   
+    neg_combined.bw<-Reduce(f = "+", x = neg_combined.list)
+    rtracklayer::export(neg_combined.bw, paste0('bw/', x, '_combined_negative.bw'), format = "BigWig")
+    
+    combined.bw<-Reduce(f = "+", x = c(pos_combined.list, neg_combined.list))
+    rtracklayer::export(combined.bw, paste0('bw/', x, '_combined_grouped.bw'), format = "BigWig")
+    
+    total_reads<-(lapply(pos_combined.bw, function(x) return(x@values %>% sum)) %>% unlist %>% sum) + 
+      (lapply(neg_combined.bw, function(x) return(x@values %>% sum)) %>% unlist %>% sum)
+    
+    pos_rpm.bw<-pos_combined.bw/total_reads*1000000
+    rtracklayer::export(pos_rpm.bw, paste0('bw/', x, '_combined_normalized_positive.bw'), format = "BigWig")
+    
+    neg_rpm.bw<-neg_combined.bw/total_reads*1000000
+    rtracklayer::export(neg_rpm.bw, paste0('bw/', x, '_combined_normalized_negative.bw'), format = "BigWig")       
+  } else if (grepl('ttseq', x)){
+    #Format and export positive and negative strand coverage
+    reads.paths<-Sys.glob(paste0('../1_processing/rdata/', x, '*.granges.rds'))
+    reads.gr<-reads.paths %>% lapply(., readRDS) %>% as('GRangesList') %>% unlist() %>% GenomicRanges::resize(., 1, 'start')
+    total_reads<-length(reads.gr)
+    
+    pos_reads.gr<-reads.gr %>% plyranges::filter(strand=='+')
+    neg_reads.gr<-reads.gr %>% plyranges::filter(strand=='-')
+    
+    pos.cov<-coverage(pos_reads.gr)
+    neg.cov<-coverage(neg_reads.gr)
+    cov<-coverage(reads.gr)
+    rtracklayer::export(pos.cov, paste0('bw/', x, '_combined_positive.bw'), format = "BigWig")
+    rtracklayer::export(neg.cov, paste0('bw/', x, '_combined_negative.bw'), format = "BigWig")
+    rtracklayer::export(cov, paste0('bw/', x, '_combined_grouped.bw'), format = "BigWig")
+    
+    pos_rpm.bw<-pos.cov/total_reads*1000000
+    neg_rpm.bw<-neg.cov/total_reads*1000000
+    rpm.bw<-cov/total_reads*1000000
+    rtracklayer::export(pos_rpm.bw, paste0('bw/', x, '_combined_normalized_positive.bw'), format = "BigWig")
+    rtracklayer::export(neg_rpm.bw, paste0('bw/', x, '_combined_normalized_negative.bw'), format = "BigWig")       
+    rtracklayer::export(rpm.bw, paste0('bw/', x, '_combined_normalized_grouped.bw'), format = "BigWig")       
+  }
+  return(NULL)
+}, mc.cores = 2)
+```
+
+# Generate reproducible set of peaks
+
+## Pool sample reads for peak calling
+
+In order to create an oracle peak set for reproducible peak calling, pool samples. This is done here, for the sake of simplicity.
+
+```{r}
+pool_cmds.vec<-samples.df %>%
+  dplyr::group_by(sample_group) %>%
+  dplyr::summarize(cmd = paste0('samtools merge --threads 12 bam/', sample_group, '_combined.bam ', paste0('../1_processing/bam/', sample_name, '.bam', collapse = ' ')))
+c('#!/bin/bash', 'ml zeitlinger', pool_cmds.vec$cmd %>% unique) %>% writeLines(., 'scripts/pool_aligned_replicates.sh')
+```
+
+```{bash, eval = F}
+sbuild -c 12 -m 200GB --submit scripts/pool_aligned_replicates.sh
+```
+
+## Generate pooled peaks
+
+```{r}
+peak_cmds.df<-samples.df %>%
+  dplyr::group_by(sample_group) %>%
+  dplyr::summarize(cmd = ifelse(unique(experiment)=='ATAC-seq',
+                                paste0('macs2 callpeak -f BAMPE -t bam/', sample_group, '_combined.bam --outdir macs2 -n ', sample_group),
+                                paste0('macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/', sample_group, '_combined.bam --outdir macs2 -n ', sample_group)))
+c('#!/bin/bash', 'ml zeitlinger', peak_cmds.df$cmd) %>% writeLines(., 'scripts/call_pooled_peaks.sh')
+```
+
+```{bash, eval = F}
+sbuild -c 12 -m 200GB --submit scripts/call_pooled_peaks.sh
+```
+
+## Run IDR
+
+Using IDR (v2.0.3), generate reproducible peaks. 
+
+```{r}
+idr_cmds.vec<-lapply(samples.df$sample_group %>% unique(), function(x){
+  rep_combos.df<-samples.df %>%
+    dplyr::filter(sample_group==x) %>%
+    .$sample_rep %>%
+    tidyr::crossing(var1 = ., var2 = .) %>%
+    dplyr::filter(!(var1>=var2)) %>%
+    dplyr::mutate(cmd = paste0('~/anaconda3/envs/idr/bin/idr --peak-list macs2/', x, '_peaks.narrowPeak --samples ../1_processing/peaks/', x, '_', var1, 
+                               '_peaks.narrowPeak ../1_processing/peaks/', x, '_', var2, 
+                               '_peaks.narrowPeak --idr-threshold 0.05 --input-file-type narrowPeak --output-file idr/', 
+                               x, '_', var1, '_vs_', var2, '_idr.txt')) %>% .$cmd
+}) %>% unlist()
+
+c('#!/bin/bash', 'source ~/.bashrc; conda deactivate; conda activate idr', idr_cmds.vec) %>% writeLines(., 'scripts/run_idr_across_peaks.sh')
+```
+
+Run IDR across these pair-wise values.
+
+```{bash, eval = F}
+sbuild -c 12 -m 200GB --submit scripts/run_idr_across_peaks.sh
+```
+
+# Export sequencing depth information
+
+```{r, eval = F}
+seq_depth.df<-mclapply(samples.df$sample_group %>% unique() %>% grep(pattern = 'GSE174774_mesc_atac_|nexus', ., value = T), function(x){
+  message(x)
+  if(grepl('nexus', x)){
+    x<-tolower(x)
+    bw<-rtracklayer::import(paste0('bw/', x, '_combined_grouped.bw'))
+    total_reads<-sum(bw$score)
+  }else{
+    bw<-rtracklayer::import(paste0('bw/', x, '_cutsites_combined.bw'))
+    total_reads<-sum(bw$score)
+  }
+  return(data.frame(sample_name = x, total_reads = total_reads))
+}, mc.cores = 6) %>% rbindlist(.)
+readr::write_tsv(seq_depth.df, 'tsv/seq_depth.tsv')
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

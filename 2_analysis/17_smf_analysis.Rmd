@@ -1,0 +1,503 @@
+---
+title: 'Assess single molecule rates of occupancy'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this document is to recapitulate (realign and reprocess) the data from 2020 Soenmezer et al.(https://www.cell.com/molecular-cell/fulltext/S1097-2765(20)30793-0#mmc1).
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/17_smf_analysis"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+regions.path<-'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz'
+motifs.path<-'tsv/mapped_motifs/all_instances_curated_0based_w_perturb.tsv.gz'
+pairs.path<-'tsv/mapped_motifs/all_pairs_curated_0based_with_cooperativity.tsv.gz'
+```
+
+# Import paired motifs
+
+```{r}
+pairs.df<-readr::read_tsv(pairs.path)
+motifs.df<-readr::read_tsv(motifs.path)
+```
+
+
+# Pull in SMF data
+
+## Pull raw data
+
+Generate a `wget` script from https://www.ebi.ac.uk/ena/browser/view/PRJEB38395.
+
++ ERR4165153: mESC replicate 1 SMF
++ ERR4165147: mESC replicate 2 SMF
+
+```{bash, eval = F}
+cd /n/projects/mw2098/publications/2024_weilert_acc/public/published/Sonmezer_2021_et_al/data/fastq
+sbatch ena-file-download-selected-files-20241119-1957_sbatch.sh
+```
+
+## Modify code repository to match filepaths
+
+The code found at https://github.com/Krebslabrep/Soenmezer_2020_SMF provides scripts to align (bowtie1) and process (QuasR) SMF data. We pulled this down:
+```{bash, eval = F}
+cd /n/projects/mw2098/publications/2024_weilert_acc/public/published/Sonmezer_2021_et_al/code
+git clone https://github.com/Krebslabrep/Soenmezer_2020_SMF
+```
+
+And modified the files inside this repository to match our expected filepaths. We also needed to install some specific packages:
+
+```{r, eval = F}
+ml R #load R
+R #launch R
+BiocManager::install('QuasR')
+BiocManager::install('pheatmap')
+# BiocManager::install('BSgenome')
+# BiocManager::install('BSgenome.Mmusculus.UCSC.mm10')
+# BiocManager::install('viridis')
+```
+
+After this, we ran the code inside: `/n/projects/mw2098/publications/2024_weilert_acc/public/published/Sonmezer_2021_et_al/code/Soenmezer_2020_SMF/single_molecule_TF_call/SMF_align.R`. This returned output
+
+# Leverage processed SMF data
+
+At the following link (https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-9123) we pulled classified states from the paper. Given the sites of interest, we want to process them in understandable terms.
+
+First define classes that the TFBS states can exist in.
+
+```{r}
+state_classes.list<-list(
+  'published' = list(bound = '101', unbound = '111', nucleosome = c('000', '001', '011', '100', '110')),
+  'strict' = list(bound = '101', unbound = '111', nucleosome = c('000'))
+)
+```
+
+Import the data. Configuration `NO` means nucleosome occupied. Configuration `DE` means the mutant, so we will ignore those.
+
+```{r}
+smf.list<-list(
+  single  = readRDS('/n/projects/mw2098/publications/2024_weilert_acc/public/published/Sonmezer_2021_et_al/data/rds/E-MTAB-9123/SingleTFSorting_NO.rds'),
+  cluster = readRDS('/n/projects/mw2098/publications/2024_weilert_acc/public/published/Sonmezer_2021_et_al/data/rds/E-MTAB-9123/TFClusterSorting_NO.rds')
+)
+```
+
+## Single
+
+Collect information from the different SMF configurations. First we will do the isolated TFs.
+
+```{r}
+#Collect coordinates
+smf_single_coords.df<-smf.list$single[[1]] %>% as.data.frame
+smf_single_coords.df$TFBS_cluster<-names(smf.list$single[[1]])
+
+#Collect read counts  at sufficiently enriched regions
+smf_single_counts.df<-smf.list$single[[3]] %>% dplyr::filter(Sample == 'SMF_MM_ES_NO_R_NextSeq', !is.na(Sample), !is.na(Counts)) %>%
+  dplyr::select(State, Counts, TFBS_cluster) %>%
+  dplyr::group_by(TFBS_cluster) %>%
+  dplyr::mutate(TotalCounts = sum(Counts)) %>%
+  dplyr::filter(!is.na(TotalCounts)) %>%
+  tidyr::pivot_wider(names_from = 'State', values_from = Counts) %>%
+  dplyr::mutate(percent_open_published = (`101` + `111`)/TotalCounts,
+                percent_open_strict = 1-((`000`)/TotalCounts))
+
+#Merge data together
+smf_single_all.df<-dplyr::left_join(smf_single_coords.df, smf_single_counts.df) %>% dplyr::filter(!is.na(TotalCounts)) %>%
+  makeGRangesFromDataFrame(., keep.extra.columns = T, starts.in.df.are.0based = F) %>%
+  plyranges::mutate(acc_reads = regionSums(GenomicRanges::resize(., width = 1000, fix = 'center'), 'bw/mesc_native_atac_cutsites_combined.bw'),
+                    island_seq = getSeq(bsgenome, GenomicRanges::resize(., width = 1000, fix = 'center'), as.character = T),
+                    C = stringr::str_count(island_seq, 'C'),
+                    G = stringr::str_count(island_seq, 'G'),
+                    CpG = stringr::str_count(island_seq, 'CG'),
+                    CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / 1000), 2)) %>%
+  as.data.frame()
+```
+
+Match the single TF smf data with our motif information.
+
+```{r}
+motifs_w_coop.gr<-motifs.df %>% 
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2','Klf4')) %>%
+  dplyr::left_join(., 
+                   pairs.df %>% 
+                     dplyr::filter(motif_pair_distance<=200) %>% #require pairs to be nuc-range
+                     dplyr::group_by(motif_id.x) %>%
+                     dplyr::summarize(med_add_acc_coop = median(add_acc_coop)) %>%
+                     dplyr::filter(abs(med_add_acc_coop)<50) %>% #filter out weird outliers
+                     dplyr::rename(motif_id = motif_id.x)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+
+#Find overlaps between SMF features and motifs
+single.ov<-findOverlaps(makeGRangesFromDataFrame(smf_single_all.df, keep.extra.columns = T), motifs_w_coop.gr, ignore.strand = T)
+smf_single_all.df$ov_motif<-'none'
+smf_single_all.df$ov_coop<-NA
+smf_single_all.df$ov_motif[single.ov@from]<-motifs_w_coop.gr$motif[single.ov@to]
+smf_single_all.df$ov_coop[single.ov@from]<-motifs_w_coop.gr$med_add_acc_coop[single.ov@to]
+
+smf_single_all.df$ov_motif %>% table
+smf_single_all.df$ov_coop %>% summary
+
+smf_single_all.df$has_Btbd11<-overlapsAny(makeGRangesFromDataFrame(smf_single_all.df, keep.extra.columns = T), GRanges('chr10', IRanges(85538671, 85540703)))
+```
+
+Compare relationship between acc. and openness.
+
+```{r}
+single_tf_p_vs_acc.plot<-smf_single_all.df %>% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  ggplot(., aes(x = p_open, y = log(acc_reads)))+
+  ggrastr::geom_point_rast(color = 'gray', size = .1)+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(!is.na(ov_coop)), color = 'black', size = .1)+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(has_Btbd11), color = 'red', size = 1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_grid(. ~ criteria)+
+  ggtitle('TF Single SMF results', subtitle = 'p_open vs acc')+
+  theme_classic()
+
+single_tf_p_vs_coop.plot<- smf_single_all.df %>% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  dplyr::mutate(p_open_grouped = plyr::round_any(p_open, .05, f = ceiling)) %>%
+  ggplot(., aes(x = p_open_grouped, y = log(ov_coop), group = p_open_grouped))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_boxplot()+
+  # ggrastr::geom_point_rast(aes(color = ov_motif), size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_grid(ov_motif ~ criteria)+
+      scale_y_continuous(limits = c(-.5, .5))+
+  # scale_color_gradient2(high = '#b2182b', mid = 'black', low = '#2166ac', midpoint = 0, name = 'Med. log. coop') + 
+  ggtitle('TF Single SMF results', subtitle = 'p_open vs coop')+
+  theme_classic()
+
+single_tf.plot<-single_tf_p_vs_acc.plot + single_tf_p_vs_coop.plot + plot_layout(ncol = 1, heights = c(1, 3))
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary.png'), single_tf.plot, height = 10, width = 8)
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary.pdf'), single_tf.plot, height = 10, width = 8)
+```
+
+Plot without log-space accessibility reads.
+
+```{r}
+single_tf_p_vs_acc.plot<-smf_single_all.df %>% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  ggplot(., aes(x = p_open, y = acc_reads))+
+  ggrastr::geom_point_rast(color = 'gray', size = .1)+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(!is.na(ov_coop)), color = 'black', size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_grid(criteria ~ .)+
+  scale_y_continuous(limits = c(0, 20000))+
+  ggtitle('TF Single SMF results', subtitle = 'p_open vs acc')+
+  theme_classic()
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary_linear.png'), single_tf_p_vs_acc.plot, height = 6, width = 8)
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary_linear.pdf'), single_tf_p_vs_acc.plot, height = 6, width = 8)
+```
+
+Plot without log-space accessibility reads.
+
+```{r}
+single_tf_p_vs_acc.plot<-smf_single_all.df %>% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  ggplot(., aes(x = log(p_open+1), y = log(acc_reads)))+
+  ggrastr::geom_point_rast(color = 'gray', size = .1)+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(!is.na(ov_coop)), color = 'black', size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_wrap(~criteria, scales = 'free')+
+  ggtitle('TF Single SMF results', subtitle = 'p_open vs acc')+
+  theme_classic()
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary_log_both.png'), single_tf_p_vs_acc.plot, height = 3, width = 5)
+ggsave(paste0(figure_filepath, '/smf_single_tf_summary_log_both.pdf'), single_tf_p_vs_acc.plot, height = 3, width = 5)
+```
+
+Check whether data fits better in linear or log model.
+
+```{r}
+linear_rsq <- function(x, y) summary(lm(y~x))$r.squared
+logy_rsq <- function(x, y) summary(lm(log(y)~x))$r.squared
+logxy_rsq <- function(x, y) summary(lm(log(y)~log(x)))$r.squared
+logxy_p1_rsq <- function(x, y) summary(lm(log(y)~log(x+1)))$r.squared
+
+
+df<-lapply(c('percent_open_published', 'percent_open_strict'), function(y){
+  smf_single_all.df$y<-smf_single_all.df[[y]]
+  smf_single_filt.df<-smf_single_all.df %>% dplyr::filter(y != 0)
+  
+  rsq.df<-rbind(
+    data.frame(metric = y, 
+               linear_rsq = linear_rsq(x = smf_single_all.df[[y]], y = smf_single_all.df$acc_reads) %>% round(., 2),
+               logy_rsq = logy_rsq(x = smf_single_all.df[[y]], y = smf_single_all.df$acc_reads) %>% round(., 2),
+               logxy_rsq = logxy_rsq(x = smf_single_filt.df$y, y = smf_single_filt.df$acc_reads) %>% round(., 2),
+               mode = 'all'),
+    data.frame(metric = y, 
+               linear_rsq = linear_rsq(x = smf_single_all.df %>% dplyr::filter(ov_motif != 'none') %>% .[[y]],
+                                       y = smf_single_all.df %>% dplyr::filter(ov_motif != 'none') %>% .$acc_reads) %>% round(., 2),
+               logy_rsq = logy_rsq(x = smf_single_all.df %>% dplyr::filter(ov_motif != 'none') %>% .[[y]], 
+                                   y = smf_single_all.df %>% dplyr::filter(ov_motif != 'none') %>% .$acc_reads) %>% round(., 2),
+               logxy_rsq = logxy_rsq(x = smf_single_filt.df %>% dplyr::filter(ov_motif != 'none') %>% .[[y]], 
+                                     y = smf_single_filt.df %>% dplyr::filter(ov_motif != 'none') %>% .$acc_reads) %>% round(., 2),
+              mode = 'motifs')
+  )
+  
+  return(rsq.df)
+}) %>% rbindlist()
+
+df
+
+smf_single_all.df %>% 
+  dplyr::group_by(ov_motif) %>%
+  dplyr::summarize(linear_rsq = linear_rsq(percent_open_published, acc_reads),
+                   logy_rsq = logy_rsq(percent_open_published, acc_reads),
+                logxy_p1_rsq = logxy_p1_rsq(percent_open_published, acc_reads))
+```
+
+```{r}
+max_val<-1000
+data.frame(x = c(rep(1:max_val, 2), log(1:max_val), log(1:max_val)),
+           y = c(1:max_val, log(1:max_val), log(1:max_val), log(log(1:max_val))),
+           state = c(rep('x:linear, y:linear', max_val), rep('x:linear, y:log', max_val), rep('log(linear_x), log(linear_y)', max_val), rep('log(linear_x), log(log_y)', max_val))) %>%
+  ggplot(., aes(x = x, y = y))+
+  geom_point()+
+  facet_wrap(~state, scales = 'free', nrow = 1)+
+  theme_classic()
+```
+
+## Cluster
+
+Collect information from the different SMF configurations. First we will do the isolated TFs.
+
+```{r}
+#Collect coordinates
+smf_cluster_coords.df<-smf.list$cluster[[1]]$ClusterCoordinates %>% as.data.frame
+smf_cluster_coords.df$TFBS_cluster<-names(smf.list$cluster[[1]]$ClusterCoordinates)
+
+smf_cluster_coords.df$width %>% summary
+
+#Collect read counts  at sufficiently enriched regions
+smf_cluster_counts.df<-smf.list$cluster[[3]] %>% dplyr::filter(Sample == 'SMF_MM_ES_NO_R_NextSeq', !is.na(Sample), !is.na(Counts)) %>%
+  dplyr::select(State, Counts, TFBS_cluster) %>%
+  dplyr::left_join(., smf_cluster_coords.df %>% dplyr::select(TFBS_cluster, width)) %>%
+  dplyr::group_by(TFBS_cluster) %>%
+  dplyr::mutate(TotalCounts = sum(Counts),
+                StateOcc0 = stringr::str_count(State, '0'),
+                StateOccTotal = nchar(State),
+                StateOccRate = StateOcc0/StateOccTotal) %>%
+  dplyr::group_by(TFBS_cluster) %>%
+  dplyr::summarize(total_counts = TotalCounts %>% unique, 
+                   counts_closed_strict = sum(ifelse(StateOcc0==StateOccTotal, Counts, 0)),
+                   counts_closed_75 = sum(ifelse(StateOcc0>=.75*StateOccTotal, Counts, 0))) %>%
+  dplyr::mutate(percent_open_lenient = 1-(counts_closed_75/total_counts),
+                percent_open_strict = 1-(counts_closed_strict/total_counts))
+
+#Merge data together
+smf_cluster_all.df<-dplyr::left_join(smf_cluster_coords.df, smf_cluster_counts.df) %>% dplyr::filter(!is.na(total_counts)) %>%
+  makeGRangesFromDataFrame(., keep.extra.columns = T, starts.in.df.are.0based = F) %>%
+  plyranges::mutate(acc_reads = regionSums(GenomicRanges::resize(., width = 1000, fix = 'center'), 'bw/mesc_native_atac_cutsites_combined.bw'),
+                    island_seq = getSeq(bsgenome, GenomicRanges::resize(., width = 1000, fix = 'center'), as.character = T),
+                    C = stringr::str_count(island_seq, 'C'),
+                    G = stringr::str_count(island_seq, 'G'),
+                    CpG = stringr::str_count(island_seq, 'CG'),
+                    CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / 1000), 2)) %>%
+  as.data.frame()
+
+smf_cluster_all.df$has_Btbd11<-overlapsAny(makeGRangesFromDataFrame(smf_cluster_all.df, keep.extra.columns = T), GRanges('chr10', IRanges(85538671, 85540703)))
+```
+
+Match motif information with the clustered SMF data.
+
+```{r}
+#Find overlaps between SMF features and motifs
+cluster.ov<-findOverlaps(motifs_w_coop.gr, makeGRangesFromDataFrame(smf_cluster_all.df, keep.extra.columns = T), ignore.strand = T)
+
+#Mark overlaps with cluster
+smf_cluster_all.df$ov_motif<-'none'
+smf_cluster_all.df$ov_motif[cluster.ov@to %>% unique]<-'ov'
+smf_cluster_all.df$ov_motif %>% table
+
+#Mark overlaps w motifs
+motifs_w_coop.gr$TFBS_cluster<-'none'
+motifs_w_coop.gr$TFBS_cluster[cluster.ov@from]<-smf_cluster_all.df$TFBS_cluster[cluster.ov@to]
+
+motifs_w_cluster.df<-motifs_w_coop.gr %>%
+  as.data.frame %>%
+  dplyr::left_join(., smf_cluster_all.df %>% dplyr::select(TFBS_cluster, percent_open_lenient, percent_open_strict, acc_reads))
+```
+
+Compare relationship between acc. and openness.
+
+```{r}
+cluster_tf_p_vs_acc.plot<-smf_cluster_all.df %>% tidyr::pivot_longer(cols = c(percent_open_lenient, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  # dplyr::group_by(TFBS_cluster) %>%
+  # dplyr::summarize(p_open = median(p_open), acc_reads = median(acc_reads)) %>%
+  ggplot(., aes(x = p_open, y = log(acc_reads)))+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(ov_motif=='none'), color = 'gray', size = .1)+
+  ggrastr::geom_point_rast(data = . %>% dplyr::filter(ov_motif=='ov'), color = 'red', size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_grid(. ~ criteria)+
+  ggtitle('TF cluster SMF results', subtitle = 'p_open vs acc')+
+  theme_classic()
+
+cluster_tf_p_vs_coop.plot<- motifs_w_cluster.df %>% tidyr::pivot_longer(cols = c(percent_open_lenient, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+  dplyr::mutate(p_open_grouped = plyr::round_any(p_open, .1, f = ceiling)) %>%
+  ggplot(., aes(x = p_open_grouped, y = log(med_add_acc_coop), group = p_open_grouped))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_boxplot()+
+  # ggrastr::geom_point_rast(aes(color = ov_motif), size = .1)+
+  ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+  facet_grid(motif ~ criteria)+
+      scale_y_continuous(limits = c(-.5, .5))+
+  # scale_color_gradient2(high = '#b2182b', mid = 'black', low = '#2166ac', midpoint = 0, name = 'Med. log. coop') + 
+  ggtitle('TF cluster SMF results', subtitle = 'p_open vs coop')+
+  theme_classic()
+
+cluster_tf.plot<-cluster_tf_p_vs_acc.plot + cluster_tf_p_vs_coop.plot + plot_layout(ncol = 1, heights = c(1, 3))
+ggsave(paste0(figure_filepath, '/smf_cluster_tf_summary.png'), cluster_tf.plot, height = 10, width = 8)
+ggsave(paste0(figure_filepath, '/smf_cluster_tf_summary.pdf'), cluster_tf.plot, height = 10, width = 8)
+```
+
+Check whether data fits better in linear or log model.
+
+```{r}
+df<-lapply(c('percent_open_lenient', 'percent_open_strict'), function(y){
+  rsq.df<-rbind(
+    data.frame(metric = y, 
+               linear_rsq = linear_rsq(x = smf_cluster_all.df[[y]], y = smf_cluster_all.df$acc_reads) %>% round(., 2),
+               logy_rsq = logy_rsq(x = smf_cluster_all.df[[y]], y = smf_cluster_all.df$acc_reads) %>% round(., 2),
+               mode = 'all'),
+    data.frame(metric = y, 
+               linear_rsq = linear_rsq(x = smf_cluster_all.df %>% dplyr::filter(ov_motif != 'none') %>% .[[y]],
+                                       y = smf_cluster_all.df %>% dplyr::filter(ov_motif != 'none') %>% .$acc_reads) %>% round(., 2),
+               logy_rsq = logy_rsq(x = smf_cluster_all.df %>% dplyr::filter(ov_motif != 'none') %>% .[[y]], 
+                                   y = smf_cluster_all.df %>% dplyr::filter(ov_motif != 'none') %>% .$acc_reads) %>% round(., 2),
+               mode = 'motifs')
+  )
+  
+  return(rsq.df)
+}) %>% rbindlist()
+
+df
+
+smf_cluster_all.df %>% 
+  dplyr::group_by(ov_motif) %>%
+  dplyr::summarize(linear_rsq = linear_rsq(percent_open_lenient, acc_reads),
+                   logy_rsq = logy_rsq(percent_open_lenient, acc_reads))
+```
+
+# Check motif cooperativity and compare for each region.
+
+Examine cooperativity in a different way. 
+
+```{r}
+pioneers<-c('Oct4-Sox2','Sox2','Klf4')
+lapply(pioneers, function(x){
+  
+  motif_of_interest.df<-pairs.df %>% 
+    dplyr::filter(motif_pair_distance<=50, 
+                  motif.x == x, 
+                  motif.y %in% pioneers) %>%
+    makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames.x', start.field = 'start.x', end.field = 'end.x')
+  
+  
+  #Find overlaps between SMF features and motifs
+  cluster.ov<-findOverlaps(motif_of_interest.df, makeGRangesFromDataFrame(smf_cluster_all.df, keep.extra.columns = T), ignore.strand = T)
+  single.ov<-findOverlaps(motif_of_interest.df, makeGRangesFromDataFrame(smf_single_all.df, keep.extra.columns = T), ignore.strand = T)
+
+  single_tf_motif.df<-motif_of_interest.df[single.ov@from,]
+  single_tf_motif.df$percent_open_published<-smf_single_all.df$percent_open_published[single.ov@to]
+  single_tf_motif.df$percent_open_strict<-smf_single_all.df$percent_open_strict[single.ov@to]
+  single_tf_motif.df$acc_reads<-smf_single_all.df$acc_reads[single.ov@to]
+  single_tf_motif.df$type<-'single'
+  
+  cluster_tf_motif.df<-motif_of_interest.df[cluster.ov@from,]
+  cluster_tf_motif.df$percent_open_published<-smf_cluster_all.df$percent_open_lenient[cluster.ov@to]
+  cluster_tf_motif.df$percent_open_strict<-smf_cluster_all.df$percent_open_strict[cluster.ov@to]
+  cluster_tf_motif.df$acc_reads<-smf_cluster_all.df$acc_reads[cluster.ov@to]
+  cluster_tf_motif.df$type<-'cluster'
+  
+  all_motif_w_smf.df<-c(single_tf_motif.df, cluster_tf_motif.df) %>% as.data.frame()
+  
+  motif.plot<-all_motif_w_smf.df %>% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = 'criteria', values_to = 'p_open') %>%
+    # dplyr::group_by(TFBS_cluster) %>%
+    # dplyr::summarize(p_open = median(p_open), acc_reads = median(acc_reads)) %>%
+    ggplot(., aes(x = p_open, y = log(add_acc_coop), color = type))+
+    geom_hline(yintercept = 0, linetype = 'dashed', color = 'gray')+
+    ggrastr::geom_point_rast(size = .1)+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    facet_grid(motif.y ~ criteria)+
+    ggtitle(paste0('TF cluster SMF results at ', x), subtitle = 'p_open vs coop')+
+    theme_classic()
+  
+  boxplot.plot<-all_motif_w_smf.df %>%
+    dplyr::mutate(p_open_grouped = plyr::round_any(percent_open_published, .1, f = ceiling))  %>%
+    dplyr::mutate(seq_bin = as.character(plyr::round_any(seq_match_quantile.x, .5, ceiling))) %>%
+    ggplot(., aes(x = p_open_grouped, y = log(add_acc_coop), group = p_open_grouped))+
+    geom_hline(yintercept = 0, linetype = 'dashed', color = 'gray')+
+    geom_boxplot()+
+    scale_y_continuous(limits = c(-.5, .5))+
+    ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
+    facet_grid(motif.y ~ seq_bin)+
+    ggtitle(paste0('TF cluster SMF results at ', x), subtitle = 'p_open vs coop')+
+    theme_classic()
+  
+  ggsave(paste0(figure_filepath, '/smf_from_motif_coop_vs_popen_', x, '.png'), motif.plot + boxplot.plot, height = 10, width = 18)
+  ggsave(paste0(figure_filepath, '/smf_from_motif_coop_vs_popen_', x, '.png'), motif.plot + boxplot.plot, height = 10, width = 18)
+  
+})
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

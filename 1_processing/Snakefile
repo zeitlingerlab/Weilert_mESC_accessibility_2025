@@ -1,0 +1,368 @@
+"""
+Author: Melanie Weilert
+Affiliation: Stowers Institute
+Aim: Pipeline for processing Zeitlinger Lab samples sequenced internally.
+Date: October 2023
+
+Main target rules:
+------------------
+- raw_fastq_to_processed_fastq
+- fastq_to_bam
+- bam_to_bw
+- bam_to_macs2
+"""
+
+##########################################################################################
+#Setup
+##########################################################################################
+import csv
+import os
+import math
+import glob
+import numpy as np
+import pandas as pd
+from itertools import product
+
+##########################################################################################
+#Import external data and prepare configuration parameters.
+##########################################################################################
+
+#Import input data
+SAMPLES = pd.read_excel('/n/projects/mw2098/publications/2024_weilert_acc/code/0_setup/4_define_samples.xlsx').set_index("sample_name", drop=False) #Define samples
+
+##########################################################################################
+#Finish sample fields to work with Snakefile
+##########################################################################################
+
+SAMPLES.extension_length = SAMPLES.extension_length.fillna(0) #fill column with zeros for str(int(ext_length)) in macs2 rule
+SAMPLES.read_1_3p_adapter = SAMPLES.read_1_3p_adapter.fillna('X') #fill column with X for cutadapt
+SAMPLES.read_2_3p_adapter = SAMPLES.read_2_3p_adapter.fillna('X') #fill column with X for cutadapt
+SAMPLES.nexus_barcodes = SAMPLES.nexus_barcodes.fillna('none') #fill column with X for cutadapt
+SAMPLES.starting_files_r2 = SAMPLES.starting_files_r2.fillna('X') #fill column with zeros for the read 2 fastq.gz if it doesn't exist
+
+#Allocate samples to avoid unnecessary steps.
+SAMPLES_WITH_NO_WCE = SAMPLES[~SAMPLES['sample_name'].str.contains('wce|h3_|gdna')] #filter all rows that have "wce" in their name
+SAMPLES_TO_CALL_PEAKS = SAMPLES_WITH_NO_WCE[~SAMPLES_WITH_NO_WCE['experiment'].str.contains('MNase|TT')] #filter all rows that have "rna" or "wce" as their method
+SAMPLES_TO_CALL_METRICS = SAMPLES[~SAMPLES['experiment'].str.contains('TT')] #filter all rows that have "rna" or "wce" as their method
+
+##########################################################################################
+# Request output files based on rules below
+##########################################################################################
+
+rule all:
+    input:
+        expand('/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/{output_sample}.bw',
+            zip, output_sample = SAMPLES.output_sample),
+        expand('/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/{sample}_peaks.narrowPeak',
+            zip, sample = SAMPLES_TO_CALL_PEAKS.sample_name),
+        expand('/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/{sample}_metrics.tsv',
+            zip, sample = SAMPLES_TO_CALL_METRICS.sample_name)
+
+
+##########################################################################################
+# General sequencing rules
+##########################################################################################
+
+rule raw_fastq_to_processed_fastq:
+    priority: 12
+    output:
+        raw_reads = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/{sample}_raw_reads.txt',
+        processed_reads = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/{sample}_processed_reads.txt'
+    params:
+        output_dir = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq',
+        output_prefix = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}',
+        output_r1 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_processed_r1.fastq.gz',
+        output_r2 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_processed_r2.fastq.gz',
+        starting_files_r1 = lambda wildcards: SAMPLES.loc[wildcards.sample, 'starting_files_r1'],
+        starting_files_r2 = lambda wildcards: SAMPLES.loc[wildcards.sample, 'starting_files_r2'],
+        concatenated_fastq_r1 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_r1.fastq.gz',
+        concatenated_fastq_r2 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_r2.fastq.gz',
+        read_1_3p_adapter = lambda wildcards: SAMPLES.loc[wildcards.sample, 'read_1_3p_adapter'],
+        read_2_3p_adapter = lambda wildcards: SAMPLES.loc[wildcards.sample, 'read_2_3p_adapter'],
+        sequencing_type = lambda wildcards: SAMPLES.loc[wildcards.sample, 'sequencing_type'],
+        exp = lambda wildcards: str(SAMPLES.loc[wildcards.sample, 'experiment']),
+        nexus_barcodes = lambda wildcards: SAMPLES.loc[wildcards.sample, 'nexus_barcodes'].replace('_', ','),
+        nexus_intermediate = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_intermediate_r1.fastq.gz',
+        scatacmulti_index_1 = lambda wildcards: SAMPLES.loc[wildcards.sample, 'starting_files_r1'].replace('_R1_', '_I1_'),
+        scatacmulti_index_2 = lambda wildcards: SAMPLES.loc[wildcards.sample, 'starting_files_r2'].replace('_R2_', '_I2_'),
+        sample = '{sample}',
+        threads = 32,
+    message: 'Processing FASTQ'
+    run:
+        shell('mkdir -p {params.output_dir}')
+        if (params.exp == 'ChIP-seq') or (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'TT-seq'):
+            if params.sequencing_type == 'single':
+                shell(
+                    """
+                    #Concatenate starting starting files into single .fastq.gz
+                    cat {params.starting_files_r1} > {params.concatenated_fastq_r1}
+
+                    #Trim adapter fragments
+                    cutadapt -m 22 -O 4 -e .22 --quiet \
+                    -a {params.read_1_3p_adapter} \
+                    -o {params.output_r1} \
+                    {params.concatenated_fastq_r1}
+                    """)
+            else:
+                shell(
+                    """
+                    #Concatenate starting starting files into single .fastq.gz
+                    cat {params.starting_files_r1} > {params.concatenated_fastq_r1}
+                    cat {params.starting_files_r2} > {params.concatenated_fastq_r2}
+
+                    #Trim adapter fragments
+                    cutadapt -m 22 -O 4 -e .22 --quiet \
+                    -a {params.read_1_3p_adapter} -A {params.read_2_3p_adapter} \
+                    -o {params.output_r1} -p {params.output_r2} \
+                    {params.concatenated_fastq_r1} {params.concatenated_fastq_r2}
+                    """)
+        elif (params.exp == 'ChIP-nexus'):
+            shell(
+                """
+                #Concatenate starting starting files into single .fastq.gz
+                cat {params.starting_files_r1} > {params.concatenated_fastq_r1}
+
+                #Preprocess the samples
+                Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/nexus_preprocess_fastq.r -f {params.concatenated_fastq_r1} \
+                -t 50 -k 20 -b {params.nexus_barcodes} -r 5 -o {params.nexus_intermediate} -p {params.threads}
+
+                #Pause to give the .fastq time to catch up with stray threads before launching into cutadapt.
+                sleep 60
+                touch {params.nexus_intermediate}
+
+                #Trim adapter fragments
+                cutadapt -m 22 -O 4 -e .22 --quiet \
+                -a AGATCGGAAGAGCACACGTCTG -a CTGTCTCTTATACACATCT \
+                -a {params.read_1_3p_adapter} \
+                -o {params.output_r1} \
+                {params.nexus_intermediate}
+                """
+            )
+        shell(
+            """
+            #Report reads
+            gzcat {params.concatenated_fastq_r1} | wc -l | awk '{{print $1/4}}' > {output.raw_reads}
+            gzcat {params.output_r1} | wc -l | awk '{{print $1/4}}' > {output.processed_reads}
+            """
+        )
+
+#Align the .fastq.gz file to the genome of interest depending on the sequencing data
+rule processed_fastq_to_sorted_bam:
+    priority: 10
+    input: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/{sample}_processed_reads.txt'
+    output: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/{sample}.bam',
+    params:
+        stats = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/bowtie_metrics/{sample}_bowtie2_stats.txt',
+        stats_dir = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/bowtie_metrics',
+        output_dir = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam',
+        read1 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_processed_r1.fastq.gz',
+        read2 = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/fastq/{sample}_processed_r2.fastq.gz',
+        exp = lambda wildcards: str(SAMPLES.loc[wildcards.sample, 'experiment']),
+        sequencing_type = lambda wildcards: SAMPLES.loc[wildcards.sample, 'sequencing_type'],
+        g = lambda wildcards: SAMPLES.loc[wildcards.sample, 'reference_genome'],
+        maximum_fragment_size = 600,
+        sample = '{sample}',
+        threads = 32,
+    message: 'Aligning FASTQ to BAM'
+    run:
+        shell('cat {input}')
+        shell('mkdir -p {params.stats_dir}')
+        shell('mkdir -p {params.output_dir}')
+        if params.sequencing_type == 'single':
+            shell(
+                """
+                bowtie2 -x /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/bowtie2/{params.g} \
+                {params.read1} -p {params.threads} --no-unal --no-mixed 2> {params.stats} | \
+                samtools view -F 4 -Sb | samtools sort --threads {params.threads} -o {output} - ;
+                """)
+        else:
+            if params.exp == 'TT-seq':
+                shell(
+                    """
+                    STAR --runThreadN {params.threads} \
+                    --genomeDir /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/STAR/STAR.2.7.3a \
+                    --readFilesIn {params.read1} {params.read2} --outFileNamePrefix {params.output_dir}/{params.sample} \
+                    --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate \
+                    --quantMode TranscriptomeSAM GeneCounts \
+                    --sjdbGTFfile /n/projects/mw2098/publications/2024_weilert_acc/public/databases/Ens/mm10.Ens_98.gtf
+                    samtools view -F 4 -Sb {params.output_dir}/{params.sample}Aligned.sortedByCoord.out.bam | samtools sort --threads {params.threads} -o {output} - ;
+                    """)
+            else:
+                shell(
+                    """
+                    bowtie2 -x /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/bowtie2/{params.g} \
+                    -1 {params.read1} -2 {params.read2} -X {params.maximum_fragment_size} -p {params.threads} --no-unal --no-mixed 2> {params.stats} | \
+                    samtools view -F 4 -Sb | samtools sort --threads {params.threads} -o {output} - ;
+                    """)
+        shell("samtools index {output}")
+
+rule bam_to_bw:
+    priority: 9
+    input:
+        lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/' + str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sample_name[0]) + '.bam'
+    output: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/{output_sample}.bw'
+    params:
+        exp = lambda wildcards: str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].experiment[0]),
+        dedup = lambda wildcards: str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].deduplicate[0]),
+        extension_length = lambda wildcards: str(int(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].extension_length[0])),
+        rdata_name = lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/rdata/' + str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sample_name[0]),
+        bw_name = lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/' + str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sample_name[0]),
+        cutsite_name = lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/' + str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sample_name[0]) + '_cutsites',
+        bam_output_sample_prefix = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/{output_sample}',
+        maximum_fragment_size = 600,
+        threads = 16,
+    message: "Computing coverage of .bam file..."
+    run:
+        if params.exp == 'ChIP-nexus':
+            shell(
+                """
+                Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/nexus_process_bam.r -f {input} -n {params.rdata_name} -b {params.bw_name} -u {params.dedup}
+                """
+            )
+        elif (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'ChIP-seq') or (params.exp == 'TT-seq'):
+            shell(
+                """
+                #Mark duplicates
+                java -jar /n/projects/mw2098/publications/2024_weilert_acc/public/software/picard/picard_v2.23.8.jar MarkDuplicates \
+                I={input} O={input}.temp.bam \
+                M={params.bam_output_sample_prefix}.dedup.txt \
+                ASSUME_SORT_ORDER=coordinate TMP_DIR=/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/tmp/
+                rm -f {input}
+                mv {input}.temp.bam {input}
+                """)
+            if (params.exp == 'ATAC-seq'):
+                shell(
+                    """
+                    Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/atac_process_bam.r \
+                        --file {input} --bigwig_file_name_output {output} --r_file_name_output {params.rdata_name}.granges.rds \
+                        --deduplicate_file {params.dedup} --tn5_cut_correction T --minimum_fragment_size 10 --maximum_fragment_size {params.maximum_fragment_size}
+                    Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/atac_process_bam.r \
+                        --file {input} --bigwig_file_name_output {params.cutsite_name}.bw \
+                        --deduplicate_file {params.dedup} --tn5_cut_correction T --minimum_fragment_size 10 --maximum_fragment_size {params.maximum_fragment_size} --cut_site_export T
+                    """
+                )
+            elif (params.exp == 'MNase') or (params.exp == 'TT-seq'):
+                if str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sequencing_type[0]) == 'single':
+                    shell(
+                        """
+                        Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/atac_process_bam.r \
+                            --single_ended --file {input} --bigwig_file_name_output {output} --r_file_name_output {params.rdata_name}.granges.rds \
+                            --deduplicate_file {params.dedup} --tn5_cut_correction F --minimum_fragment_size 10 --maximum_fragment_size {params.maximum_fragment_size} --fragment_length_extension 147
+                        """
+                    )
+                else:
+                    shell(
+                        """
+                        Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/atac_process_bam.r \
+                            --file {input} --bigwig_file_name_output {output} --r_file_name_output {params.rdata_name}.granges.rds \
+                            --deduplicate_file {params.dedup} --tn5_cut_correction F --minimum_fragment_size 10 --maximum_fragment_size {params.maximum_fragment_size}
+                        """
+                    )
+            elif params.exp == 'ChIP-seq':
+                if str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sequencing_type[0]) == 'single':
+                    shell(
+                        """
+                        Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/seq_process_bam.r -f {input} -e {params.extension_length} -n {params.rdata_name} -b {output} -c {params.threads} -d {params.dedup}
+                        """
+                    )
+                else:
+                    shell(
+                        """
+                        Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/seq_process_bam.r -f {input} -e {params.extension_length} -n {params.rdata_name} -b {output} -c {params.threads} -d {params.dedup} --paired
+                        """
+                    )
+
+rule placeholder_transition:
+    input: lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/' + str(SAMPLES.loc[wildcards.sample, 'output_sample']) + '.bw'
+    output: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/{sample}_touch.txt'
+    message: "Transitioning to uploading metrics..."
+    shell:
+        """
+        echo {input} > {output}
+        """
+
+##########################################################################################
+# Peak/coverage identification  rules
+##########################################################################################
+
+rule bam_to_macs2:
+    priority: 8
+    input: "/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/{sample}.bam"
+    output: "/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/{sample}_peaks.narrowPeak"
+    params:
+        exp = lambda wildcards: str(SAMPLES.loc[wildcards.sample, 'experiment']),
+        wce = lambda wildcards: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/' + str(SAMPLES.loc[wildcards.sample, 'control_name']) + '.bam',
+        extension_length = lambda wildcards: SAMPLES.loc[wildcards.sample, 'extension_length'],
+        outdir = "/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks",
+        input_bam_status = lambda wildcards: 'BAM' if str(SAMPLES.loc[wildcards.sample, 'sequencing_type'])=='single' else 'BAMPE',
+        name = "{sample}",
+        threads = 16,
+    message: "Running MACS2..."
+    run:
+        shell("mkdir -p {params.outdir}")
+        if params.exp == 'ChIP-seq':
+            if pd.isnull(params.wce): #If there is no WCE, then just find peaks without it
+                shell(
+                    """
+                    macs2 callpeak -f {params.input_bam_status} -t {input} --outdir {params.outdir} -n {params.name}
+                    """
+                )
+            else:
+                shell(
+                    """
+                    macs2 callpeak -f {params.input_bam_status} -t {input} -c {params.wce} --outdir {params.outdir} -n {params.name}
+                    """
+                )
+        elif params.exp == 'ChIP-nexus':
+            shell(
+                """
+                macs2 callpeak --keep-dup all -f {params.input_bam_status} --nomodel --shift -75 --extsize 150 -t {input} --outdir {params.outdir} -n {params.name}
+                """
+            )
+        elif (params.exp == 'ATAC-seq'):
+            shell(
+                """
+                macs2 callpeak -f {params.input_bam_status} -t {input} --outdir {params.outdir} -n {params.name}
+                """
+            )
+
+
+##########################################################################################
+# Quality metric performance
+##########################################################################################
+rule summarize_quality_metrics:
+    priority: 8
+    input:
+        fastq = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/fastq_counts/{sample}_raw_reads.txt',
+        transition = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/pipeline_transition/{sample}_touch.txt'
+    output: '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/quality_metrics/{sample}_metrics.tsv'
+    params:
+        stats = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/logs/bowtie_metrics/{sample}_bowtie2_stats.txt',
+        exp = lambda wildcards: str(SAMPLES.loc[wildcards.sample, 'experiment']),
+        granges = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/rdata/{sample}.granges.rds',
+        bam = '/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/{sample}.bam',
+        sample = "{sample}",
+    message: "Summarizing quality metrics and performing database upload..."
+    run:
+        shell("echo {input.transition}")
+        if (params.exp == 'ChIP-seq') or (params.exp == 'ATAC-seq') or (params.exp == 'MNase'):
+            shell(
+                """
+                Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/compute_quality_metrics.r \
+                    --fastq_reads_file {input.fastq} \
+                    --bowtie2_statistics {params.stats} \
+                    --granges {params.granges} \
+                    --output_table {output}
+                """
+            )
+        elif params.exp == 'ChIP-nexus':
+            shell(
+                """
+                Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/compute_quality_metrics.r \
+                    --fastq_reads_file {input.fastq} \
+                    --bowtie2_statistics {params.stats} \
+                    --granges {params.granges} \
+                    --nexus_bam {params.bam} \
+                    --output_table {output}
+                """
+            )

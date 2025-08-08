@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+#SBATCH --job-name buildBpreveal
+#SBATCH --ntasks=3
+#SBATCH --nodes=1
+#SBATCH --mem=5gb
+#SBATCH --time=24:00:00
+#SBATCH --output=log%j.log
+#SBATCH --partition=gpu
+#SBATCH --gres gpu:a100_3g.20gb:1
+
+# This is a script that you can run on Cerebro (the cluster at Stowers)
+# to install bpreveal. If you're not on a cluster, see the buildCondaLocal.zsh
+# script.
+
+################
+# CHANGE THESE #
+################
+
+# I need to source my .shrc to get conda on the path.
+# CHANGE this to your own shell rc file, or it may
+# work without this line for you.
+source /home/mw2098/.bashrc
+
+# The location where you cloned the git repository.
+# CHANGE to reflect your directory.
+BPREVEAL_DIR=/n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404
+
+# -p if you're specifying a path, -n if you're specifying a name.
+# CHANGE the environment name to your own preference.
+ENV_FLAG=-n
+ENV_NAME=bpreveal_404
+
+# CHANGE this to conda if you don't have mamba installed.
+CONDA_BIN=mamba
+PIP_BIN=pip
+
+######################
+# DON'T CHANGE BELOW #
+######################
+
+######################
+# DON'T CHANGE BELOW #
+######################
+
+check() {
+    errorVal=$?
+    if [ $errorVal -eq 0 ]; then
+        echo "Command completed successfully"
+    else
+        echo "ERROR DETECTED: Last command exited with status $errorVal"
+        exit
+    fi
+}
+
+checkPackage() {
+    python3 -c "import $1"
+    errorVal=$?
+    if [ $errorVal -eq 0 ]; then
+        echo "$1 imported successfully."
+    else
+        echo "ERROR DETECTED: Failed to import $1"
+        exit
+    fi
+}
+
+
+${CONDA_BIN} create --yes ${ENV_FLAG} ${ENV_NAME} python=3.11
+check
+
+conda activate ${ENV_NAME}
+check
+# You have to install the nvidia-toolkit manually to enable optimizations
+# for tensorflow.
+#${CONDA_BIN} install --yes -c "nvidia/label/cuda-11.8.0" cuda-toolkit
+#check
+
+# Tensorflow expressly advises against installing with conda.
+# I'm gonna do it anyway, because it works for me.
+#${CONDA_BIN} install --yes -c conda-forge tensorflow-gpu tensorflow-probability
+#check
+
+pip install 'tensorflow[and-cuda]'
+pip install tensorflow_probability
+checkPackage tensorflow
+checkPackage tensorflow_probability
+
+${CONDA_BIN} install --yes -c conda-forge matplotlib plotnine pathos 
+check
+checkPackage matplotlib
+
+#jsonschema is used to validate input jsons.
+${CONDA_BIN} install --yes -c conda-forge jsonschema
+check
+checkPackage jsonschema
+
+# cmake is necessary to build the wheels for modiscolite.
+${CONDA_BIN} install --yes -c conda-forge cmake
+check
+
+# These will have been installed by previous code, but doesn't hurt to explicitly list them.
+${CONDA_BIN} install --yes -c conda-forge h5py
+check
+checkPackage h5py
+${CONDA_BIN} install --yes -c conda-forge tqdm
+check
+checkPackage tqdm
+
+# Before building stuff with pip, we need to make sure we have a compiler installed.
+${CONDA_BIN} install --yes -c conda-forge gxx_linux-64
+check
+
+# pysam and pybedtools don't have (as of 2023-03-23) Python 3.10 versions
+# in the conda repositories. So install them through pip.
+${PIP_BIN} install --no-input pysam pybedtools pybigwig
+check
+checkPackage pybedtools
+checkPackage pyBigWig
+checkPackage pysam
+
+# Modisco-lite isn't in conda as of 2023-03-23.
+${PIP_BIN} install --no-input modisco-lite snakemake
+check
+
+# Optional:
+# 1. Install jupyter lab.
+${CONDA_BIN} install --yes -c conda-forge jupyterlab nb_conda jupyter_contrib_nbextensions
+check
+# 2. Install pycodestyle (used in development to check code style,
+# never needed to run bpreveal.)
+${CONDA_BIN} install --yes -c conda-forge pycodestyle
+check
+
+
+# 4. Try to build libjaccard.
+${CONDA_BIN} install --yes -c conda-forge gfortran
+check
+cd ${BPREVEAL_DIR}/src && make clean && make
+check
+
+# 5. Set up bpreveal on your python path.
+${CONDA_BIN} install --yes -c conda-forge conda-build
+check
+
+conda develop ${BPREVEAL_DIR}/pkg
+check
+
+
+#Add binaries to your path. If you skip this, you can
+#always give the full name to the bpreveal tools.
+#N.B. If you're manually setting up your environment, running these commands will clobber
+#your shell. Once you've run them, exit and restart your shell.
+echo "export BPREVEAL_KILL_PATH=${BPREVEAL_DIR}/bin"\
+    > ${CONDA_PREFIX}/etc/conda/activate.d/bpreveal_bin_activate.sh
+echo "export PATH=\$BPREVEAL_KILL_PATH:\$PATH"\
+    >> ${CONDA_PREFIX}/etc/conda/activate.d/bpreveal_bin_activate.sh
+
+echo "export XLA_FLAGS=\"--xla_gpu_cuda_data_dir=${CONDA_PREFIX}\"" \
+    > ${CONDA_PREFIX}/etc/conda/activate.d/cuda_xla_activate.sh
+
+#And add a (very hacky) deactivation command that removes bpreveal from
+#your path when you deactivate the environment.
+echo "export PATH=\$(echo \$PATH | tr ':' '\n' | grep -v \$BPREVEAL_KILL_PATH | tr '\n' ':')"\
+    > ${CONDA_PREFIX}/etc/conda/deactivate.d/bpreveal_bin_deactivate.sh
+echo "unset BPREVEAL_KILL_PATH"\
+    >> ${CONDA_PREFIX}/etc/conda/deactivate.d/bpreveal_bin_deactivate.sh
+echo "unset XLA_FLAGS" \
+    > ${CONDA_PREFIX}/etc/conda/deactivate.d/cuda_xla_deactivate.sh
+
+
+echo "*-----------------------------------*"
+echo "| BPReveal installation successful. |"
+echo "|           (probably...)           |"
+echo "*-----------------------------------*"
