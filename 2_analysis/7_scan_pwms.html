@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-07-08" />
+<meta name="date" content="2025-08-11" />
 
 <title>PWM-scan for motifs</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">PWM-scan for motifs</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">July 08, 2025</h4>
+<h4 class="date">August 11, 2025</h4>
 
 </div>
 
@@ -1958,9 +1958,47 @@ os_all_showcase.df$type %&gt;% table()</code></pre>
 ##  19690 580166</code></pre>
 <pre class="r"><code>histogram&lt;-ggplot(os_all_showcase.df, aes(x = seq_score, fill = type))+
   geom_histogram(position = &#39;identity&#39;, alpha = .2)+
+  theme_classic()</code></pre>
+<p>Plot histograms of the binding effects as an alternative
+representation of affinity.</p>
+<pre class="r"><code>sampled_motif_n &lt;- 5000
+optimal_sequence_from_contribution&lt;-&#39;ATTTGCATAACAATG&#39;
+
+bind_os.df&lt;-all_motifs.list$`Oct4-Sox2`$motifs %&gt;% 
+  plyranges::filter(mapping_state != &#39;bind&#39;) %&gt;%
+  plyranges::mutate(oct4 = regionSums(GenomicRanges::resize(., 70, &#39;center&#39;), &#39;bw/mesc_oct4_nexus_combined_grouped.bw&#39;)) %&gt;%
+  as.data.frame() %&gt;% dplyr::rename(seq_score = pwm_match_score)
+bind_os.df&lt;-bind_os.df %&gt;% dplyr::mutate(mm = mapply(function(x,y) sum(x!=y),strsplit(optimal_sequence_from_contribution,&quot;&quot;),strsplit(seq,&quot;&quot;)))
+
+bind_histogram_log10&lt;-bind_os.df %&gt;%
+  dplyr::mutate(bin = plyr::round_any(oct4, 10, ceiling)) %&gt;%
+  dplyr::group_by(bin) %&gt;%
+  dplyr::summarize(freq_oct4 = dplyr::n(),
+                med_mm = median(mm)) %&gt;%
+  dplyr::filter(bin&lt;=1000) %&gt;%
+  ggplot(., aes(x = bin))+
+  geom_histogram(aes(y = freq_oct4, fill = med_mm), stat = &#39;identity&#39;)+
+  scale_x_continuous(limits = c(0, 1000))+
+  scale_y_log10()+
+  scale_fill_gradientn(colors = inferno(4))+
   theme_classic()
 
-#Select CWM-only motifs and subsample based on selected thresholds.
+bind_histogram_norm&lt;-bind_os.df %&gt;%
+  dplyr::mutate(bin = plyr::round_any(oct4, 10, ceiling)) %&gt;%
+  dplyr::group_by(bin) %&gt;%
+  dplyr::summarize(freq_oct4 = dplyr::n(),
+                med_mm = median(mm)) %&gt;%
+  dplyr::filter(bin&lt;=1000) %&gt;%
+  ggplot(., aes(x = bin))+
+  geom_histogram(aes(y = freq_oct4, fill = med_mm), stat = &#39;identity&#39;)+
+  scale_x_continuous(limits = c(0, 1000))+
+  scale_fill_gradientn(colors = inferno(4))+
+  theme_classic()
+bind_histogram&lt;-bind_histogram_log10 + bind_histogram_norm
+ggsave(paste0(figure_filepath, &#39;/binding_histogram.png&#39;), bind_histogram, height = 3, width = 15)
+ggsave(paste0(figure_filepath, &#39;/binding_histogram.pdf&#39;), bind_histogram, height = 3, width = 10)</code></pre>
+<p>Re-bin things and show the groups.</p>
+<pre class="r"><code>#Select CWM-only motifs and subsample based on selected thresholds.
 sampled_motif_n &lt;- 5000
 cwm_only.df&lt;-os_all_showcase.df %&gt;% dplyr::filter(type==&#39;cwm&#39;) 
 cwm_only.df&lt;-cwm_only.df %&gt;%

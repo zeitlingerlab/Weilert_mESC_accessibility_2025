@@ -6,11 +6,11 @@ Purpose: Setup directions for accessibility cooperativity/low-affinity paper
 
 # Introduction
 
-For the work titled "Widespread low-affinity motifs enhance chromatin accessibility through intra-nucleosomal cooperativity in mESCs" from the Zeitlinger Lab, we give setup instructions for someone interested in reproducing analysis from this manuscript. 
+For the work titled "Widespread low-affinity motifs enhance chromatin accessibility and regulatory potential in mESCs" from the Zeitlinger Lab, we give setup instructions for someone interested in reproducing analysis from this manuscript. 
 
 For raw sequencing data, access the GEO referenced in the manuscript.
 For intermediate files like trained models, TF-MoDISco results, motif coordinates, access the Zenodo referenced in the manuscript.
-For code used to generated the intermediate files and final figures, refer to the scripts and code here. 
+For code used to generate the intermediate files and final figures, refer to the scripts and code here. 
 
 All raw data/intermediate data/code/etc is readily available upon request to the Zeitlinger lab and Melanie Weilert.
 
