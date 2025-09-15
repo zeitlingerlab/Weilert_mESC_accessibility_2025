@@ -64,6 +64,7 @@ bind_motif_to_task.list<-list('Oct4-Sox2' = 'oct4', 'Sox2' = 'sox2', 'Klf4' = 'k
 bind_motif_to_task.df<-data.frame(key_task = bind_motif_to_task.list %>% unlist, raw_motifA = names(bind_motif_to_task.list))
 
 genomic_motifs.path<-'tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz'
+motif_perturbs.path<-'tsv/mapped_motifs/all_instances_curated_0based_w_perturb.tsv.gz'
 paired_perturbs.path<-'tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz'
 region.path<-'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz'
 models_of_interest<-c('atac_wt', 'bpnet_osknz')
@@ -110,7 +111,6 @@ saturation_premise.plot<-data.frame(o1 = sample(seq(0.01, 1, 0.01), size = 10000
   scale_y_continuous(name = 'popen', limits = c(0, 1))+
   scale_color_gradientn(name = 'abs(o1-o2)', colors = magma(10))+
   theme_classic()
-saturation_premise.plot
 ggsave(paste0(figure_filepath, '/saturation_formula_graphic.png'), saturation_premise.plot, height = 4, width = 4)
 ggsave(paste0(figure_filepath, '/saturation_formula_graphic.pdf'), saturation_premise.plot, height = 4, width = 4)
 ```
@@ -212,33 +212,38 @@ readr::write_tsv(perturbs_processed.df, 'tsv/mapped_motifs/all_pairs_curated_0ba
 
 We want to see whether very high and very low motif pairs are not cooperating as well as two mid-affinities. We mean: the absolute effect is not high because a low affinity motif can't contribute much and the high affinity motif won't really care. 
 
-First, select the top, middle, and bottom 5% of isolation scores of pioneers (independent of motif identity). This is a measurement of pioneering strength, independent of affinity.
+First, select the top, middle, and bottom context scores of pioneers (independent of motif identity). We are using context scores because they show that the context-considered in vivo features of whether a motif will be reactive and cooperative relative to other features. 
 
 ```{r}
-marg.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/all_marginalizations.tsv.gz') %>%
-  dplyr::left_join(perturbs.df %>% dplyr::select(`motif.x`, `seq.x`) %>% unique %>% dplyr::rename(seq = `seq.x`, motif = `motif.x`)) %>%
-  dplyr::filter(atac_wt_marg>0, motif %in% c('Oct4-Sox2','Sox2', 'Klf4')) %>%
-  # dplyr::filter(atac_wt_marg>0, motif %in% c('Oct4-Sox2', 'Sox2')) %>%
-  dplyr::group_by(motif) %>%
-  dplyr::mutate(atac_wt_marg_q = ecdf(atac_wt_marg)(atac_wt_marg))
+upper_range<-.2
+mid_range<-.2
+lower_range<-.2
+outlier<-0
 
-marg_candidates.df<-rbind(
-  marg.df %>% dplyr::filter(atac_wt_marg_q<=.25) %>% dplyr::mutate(marg_class = 'q_low'),
-  marg.df %>% dplyr::filter(atac_wt_marg_q<=.55, atac_wt_marg_q>=.45) %>% dplyr::mutate(marg_class = 'q_mid'),
-  marg.df %>% dplyr::filter(atac_wt_marg_q>=.75) %>% dplyr::mutate(marg_class = 'q_high')
-)
+perturb_candidates.df<-perturbs.df %>%
+  dplyr::filter(model_name == 'atac_wt', task == 'atac', motif_pair_distance<=200, motif_pair_distance>=20) %>%
+  dplyr::mutate(atac_wt_perturb_A = log(hAB_sum) - log(hA_sum),
+                atac_wt_perturb_B = log(hAB_sum) - log(hB_sum)) %>%
+  dplyr::filter(atac_wt_perturb_A>0, atac_wt_perturb_B>0, 
+                motif.x %in% c('Oct4-Sox2','Sox2', 'Klf4'),
+                motif.y %in% c('Oct4-Sox2','Sox2', 'Klf4')) %>% #c('Sox2')) %>% #
+  dplyr::mutate(atac_wt_perturb_A_q = ecdf(atac_wt_perturb_A)(atac_wt_perturb_A),
+                atac_wt_perturb_B_q = ecdf(atac_wt_perturb_A)(atac_wt_perturb_B))%>% 
+  dplyr::filter(motif_pair_ordered==motif_pair_blind) %>% #remove redundant motifs
+  dplyr::mutate(atac_wt_perturb_A_group = cut(atac_wt_perturb_A_q, 
+                                              breaks = c(-Inf, outlier, lower_range, .5-(mid_range/2), 
+                                                         .5+(mid_range/2), (1-upper_range), (1-outlier), Inf),
+                                              labels = c('remove', 'q_low', 'remove', 'q_mid', 'remove', 'q_high', 'remove'), 
+                                              include.lowest = T),
+                atac_wt_perturb_B_group = cut(atac_wt_perturb_B_q, 
+                                              breaks = c(-Inf, outlier, lower_range, .5-(mid_range/2), 
+                                                         .5+(mid_range/2), (1-upper_range), (1-outlier), Inf),
+                                              labels = c('remove', 'q_low', 'remove', 'q_mid', 'remove', 'q_high', 'remove'), 
+                                              include.lowest = T)) %>%
+  dplyr::filter(atac_wt_perturb_A_group!='remove', atac_wt_perturb_B_group!='remove') %>%
+  dplyr::mutate(paired_perturb_class = paste0(`atac_wt_perturb_A_group`, ' vs ', `atac_wt_perturb_B_group`))
 
-#Isolate motifs that have very strong isolation scores, very weak isolation scores, and middling isolation scores.
-perturb_candidates.df<-perturbs.df %>% 
-  dplyr::filter(model_name == 'atac_wt', task == 'atac', motif_pair_ordered==motif_pair_blind, motif_pair_distance<=400, motif_pair_distance>=20) %>% #dont take redundant pairs
-  dplyr::left_join(marg_candidates.df %>% dplyr::mutate(`seq.x` = seq) %>% dplyr::select(`seq.x`, marg_class)) %>% 
-  dplyr::rename(`marg_class.x` = marg_class) %>% 
-  dplyr::left_join(marg_candidates.df %>% dplyr::mutate(`seq.y` = seq) %>% dplyr::select(`seq.y`, marg_class)) %>% 
-  dplyr::rename(`marg_class.y` = marg_class) %>%
-  dplyr::filter(!is.na(`marg_class.x`), !is.na(`marg_class.y`)) %>%
-  dplyr::mutate(paired_marg_class = paste0(`marg_class.x`, ' vs ', `marg_class.y`))
-
-ggplot(perturb_candidates.df, aes(paired_marg_class, fill = motif_pair_blind))+
+ggplot(perturb_candidates.df, aes(paired_perturb_class, fill = motif_pair_blind))+
   geom_bar(position = 'dodge')+
   theme_classic()
 ```
@@ -246,8 +251,8 @@ ggplot(perturb_candidates.df, aes(paired_marg_class, fill = motif_pair_blind))+
 Plot the effects of different motif pairs based on their relative isolation scores.
 
 ```{r}
-merged_class_index.df<-data.frame(paired_marg_class = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_low vs q_mid", "q_high vs q_mid", "q_high vs q_low", "q_mid vs q_high", "q_high vs q_high", "q_low vs q_high")) %>%
-  dplyr::mutate(paired_marg_class_merged = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_mid vs q_low", "q_high vs q_mid", "q_high vs q_low", "q_high vs q_mid", "q_high vs q_high", "q_high vs q_low") %>%
+merged_class_index.df<-data.frame(paired_perturb_class = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_low vs q_mid", "q_high vs q_mid", "q_high vs q_low", "q_mid vs q_high", "q_high vs q_high", "q_low vs q_high")) %>%
+  dplyr::mutate(paired_perturb_class_merged = c("q_low vs q_low", "q_mid vs q_low", "q_mid vs q_mid", "q_mid vs q_low", "q_high vs q_mid", "q_high vs q_low", "q_high vs q_mid", "q_high vs q_high", "q_high vs q_low") %>%
                   factor(., levels = c("q_high vs q_low", "q_high vs q_mid", "q_high vs q_high", "q_mid vs q_mid", "q_mid vs q_low",  "q_low vs q_low")))
 
 perturb_candidates_tidy.df<-perturb_candidates.df %>% 
@@ -258,21 +263,21 @@ perturb_candidates_tidy.df<-perturb_candidates.df %>%
   
   #account for motifAmotifB or motifB motifA
   dplyr::left_join(merged_class_index.df) %>%
-  tidyr::separate(paired_marg_class_merged, into = c('left_class','right_class'), sep = ' vs ', remove = F) %>%
-  dplyr::mutate(A = ifelse(paired_marg_class_merged==paired_marg_class, A_unmerged, B_unmerged),
-                B = ifelse(paired_marg_class_merged==paired_marg_class, B_unmerged, A_unmerged),
-                left_motif = ifelse(paired_marg_class_merged==paired_marg_class, `motif.x`, `motif.y`),
-                right_motif = ifelse(paired_marg_class_merged==paired_marg_class, `motif.y`, `motif.x`)) %>%
+  tidyr::separate(paired_perturb_class_merged, into = c('left_class','right_class'), sep = ' vs ', remove = F) %>%
+  dplyr::mutate(A = ifelse(paired_perturb_class_merged==paired_perturb_class, A_unmerged, B_unmerged),
+                B = ifelse(paired_perturb_class_merged==paired_perturb_class, B_unmerged, A_unmerged),
+                left_motif = ifelse(paired_perturb_class_merged==paired_perturb_class, `motif.x`, `motif.y`),
+                right_motif = ifelse(paired_perturb_class_merged==paired_perturb_class, `motif.y`, `motif.x`)) %>%
   dplyr::select(-A_unmerged, -B_unmerged) %>%
   tidyr::pivot_longer(cols = c(AB, A, B, null), names_to = 'state', values_to = 'effects')
   
 #group and summarize levels
 perturb_candidates_summary.df<-perturb_candidates_tidy.df %>%
-  dplyr::group_by(state, paired_marg_class_merged) %>% #, motif_pair_blind) %>%
+  dplyr::group_by(state, paired_perturb_class_merged) %>% #, motif_pair_blind) %>%
   dplyr::summarize(med_effects = median(effects)) %>% 
   dplyr::mutate(state = factor(state, levels = c('AB', 'A','B', 'null')))
 
-uneven_levels.plot<-ggplot(perturb_candidates_summary.df, aes(x = paired_marg_class_merged))+
+uneven_levels.plot<-ggplot(perturb_candidates_summary.df, aes(x = paired_perturb_class_merged))+
   geom_bar(aes(y = med_effects, fill = state), stat = 'identity', position = 'dodge')+
   geom_bar(data = perturb_candidates_summary.df %>% tidyr::pivot_wider(names_from = 'state', values_from = 'med_effects'),
            aes(y = A + B), stat = 'identity', position = 'dodge', fill = NA, width = .3, color = 'black')+
@@ -282,23 +287,23 @@ uneven_levels.plot<-ggplot(perturb_candidates_summary.df, aes(x = paired_marg_cl
 
 # Measure which motifs went into each class.
 left_uneven_motifs.plot<-perturb_candidates_tidy.df %>%
-  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::group_by(paired_perturb_class_merged, left_motif, right_motif) %>%
   dplyr::summarize(freq = dplyr::n()) %>%
-  ggplot(., aes(x = paired_marg_class_merged))+
+  ggplot(., aes(x = paired_perturb_class_merged))+
   geom_bar(aes(y = freq, fill = left_motif), stat = 'identity', position = 'fill')+
   ggtitle('motifA identities')+
   theme_classic()  
 
 right_uneven_motifs.plot<-perturb_candidates_tidy.df %>%
-  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::group_by(paired_perturb_class_merged, left_motif, right_motif) %>%
   dplyr::summarize(freq = dplyr::n()) %>%
-  ggplot(., aes(x = paired_marg_class_merged))+
+  ggplot(., aes(x = paired_perturb_class_merged))+
   geom_bar(aes(y = freq, fill = right_motif), stat = 'identity', position = 'fill')+
   ggtitle('motifB identities')+
   theme_classic()  
 
 print(perturb_candidates_tidy.df %>%
-  dplyr::group_by(paired_marg_class_merged, left_motif, right_motif) %>%
+  dplyr::group_by(paired_perturb_class_merged, left_motif, right_motif) %>%
   dplyr::summarize(freq = dplyr::n()))
 
 uneven.metaplot<-uneven_levels.plot + left_uneven_motifs.plot + right_uneven_motifs.plot + plot_layout(nrow = 1, widths = c(4, 1, 1))

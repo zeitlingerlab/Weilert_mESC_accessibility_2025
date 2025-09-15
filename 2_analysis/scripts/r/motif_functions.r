@@ -269,3 +269,8 @@ get_sequence_ic<-function(seq, ic){
   source("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/scripts/r/motif_functions.r")
   (one_hot_encode_DNA(seq) * ic) %>% sum
 }
+
+get_sequence_logodds<-function(seq, pwm){
+  source("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/scripts/r/motif_functions.r")
+  (one_hot_encode_DNA(seq) * pwm) %>% sum
+}

@@ -194,11 +194,12 @@ ggsave(paste0(figure_filepath, '/conc_S_vs_S.pdf'), conc.plots, height = 4, widt
 
 ```
 
-## OS/S 
 
-Plot Oct4-Sox2 effects (A) when concentration of Oct4-Sox2 (A) is changing and ONLY affinities of Oct4-Sox2 (A) is changing.
+## S/TFB when S changes and TF B does not
 
-## Open region, middling pioneering
+### Open region, middling pioneering
+
+Plot Sox2 effects (A) when concentration of Sox2 (A) is changing and ONLY affinities of Sox2 (A) is changing in the presence of another pioneering TF (B) with unchanging affinities and concentration.
 
 ```{r}
 conc.df<-Sys.glob('tsv/kinetics/os_sameclosing=True_*_a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5.tsv.gz') %>%
@@ -294,10 +295,10 @@ coop.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_coopvals, color = g_class,
   theme_classic() + theme(legend.position = 'bottom')
 
 
-conc.plots<-single.plot + singleB.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')
+conc.plots<-single.plot + singleB.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'S/TFB where S affinity/conc change', subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')
 conc.plots
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering.png'), conc.plots, height = 4, width = 12)
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering.pdf'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering.png'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering.pdf'), conc.plots, height = 4, width = 12)
 ```
 
 Plot binding occupancy over changing concentrations
@@ -327,15 +328,38 @@ double.plot<-ggplot(conc.df, aes(x = log10_kon, y = bindA_ABonly, color = g_clas
   theme_classic() + theme(legend.position = 'bottom')
 
 
-conc.plots<-single.plot + singleB.plot + double.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', 
+conc.plots<-single.plot + singleB.plot + double.plot + plot_layout(nrow = 1) + plot_annotation(title = 'S/TFB where S affinity/conc change', 
                                                                                                subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')
 conc.plots
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering_binding_occupancy.png'), conc.plots, height = 4, width = 12)
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_open_region_mid_pioneering_binding_occupancy.pdf'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering_binding_occupancy.png'), conc.plots, height = 4, width = 12)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering_binding_occupancy.pdf'), conc.plots, height = 4, width = 12)
 
 ```
 
-### Hill coefficients
+Plot the curve derivatives.
+
+```{r}
+conc_w_dx.df<-conc.df %>%
+  dplyr::mutate(accAonly_dx = c(NA, diff(acc_Aonly)),
+                acc_AB_dx = c(NA, diff(acc_AB))) %>%
+  tidyr::pivot_longer(cols = c(accAonly_dx, acc_AB_dx), names_to = 'measurement', values_to = 'dx') %>%
+  as.data.frame
+
+#Visualize features
+dx.plot<-ggplot(conc_w_dx.df, aes(x = log10_kon, y = dx, color = g_class, group = interaction(trial, g_class)))+
+  geom_line(size = 1) + 
+  scale_x_continuous(name = 'log10(k_on) of A')+
+  scale_y_continuous(name = 'Dx of curves', limits = c(0, 0.015))+
+  facet_grid(. ~ measurement)+
+  scale_color_manual(values = rev(colors), name = 'Affinity group')+
+  ggtitle('S/TFB where S affinity/conc change', subtitle = 'a1=4.00-6.00_a2f=3.25-5.50_d=0.01-0.01_betam=5')+
+  theme_classic() + theme(legend.position = 'bottom')
+dx.plot
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering_curve_derivatives.png'), dx.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_open_region_mid_pioneering_curve_derivatives.pdf'), dx.plot, height = 4, width = 8)
+```
+
+#### Hill coefficients
 
 Calculate Hill coefficients for each of these features. Better documentation comes from another package (https://search.r-project.org/CRAN/refmans/braidrm/html/findBestHill.html). 
 
@@ -406,7 +430,7 @@ print(p100_is_ceiling.df)
 
 Confirms that Hill coefficient of this curve is 1 or 10 (non log space) regardless of how you calculate it. Alone vs cooperative doesn't change that.
 
-## Closed region, strong pioneering
+### Closed region, strong pioneering
 
 ```{r}
 conc.df<-Sys.glob('tsv/kinetics/os_sameclosing=True_*_a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5.tsv.gz') %>%
@@ -468,10 +492,10 @@ coop.plot<-ggplot(conc.df, aes(x = log10_kon, y = acc_coopvals, color = g_class,
   theme_classic() + theme(legend.position = 'bottom')
 
 
-conc.plots<-single.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'OS/S where OS affinity/conc change', subtitle = 'a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5')
+conc.plots<-single.plot + double.plot + coop.plot + plot_layout(nrow = 1) + plot_annotation(title = 'S/TFB where S affinity/conc change', subtitle = 'a1=8.00-10.00_a2f=7.75-10.00_d=0.001-0.001_betam=5')
 conc.plots
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_closed_region_strong_pioneering.png'), conc.plots, height = 4, width = 9)
-ggsave(paste0(figure_filepath, '/conc_OS_vs_S_closed_region_strong_pioneering.pdf'), conc.plots, height = 4, width = 9)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_closed_region_strong_pioneering.png'), conc.plots, height = 4, width = 9)
+ggsave(paste0(figure_filepath, '/conc_S_vs_TFB_closed_region_strong_pioneering.pdf'), conc.plots, height = 4, width = 9)
 
 ```
 

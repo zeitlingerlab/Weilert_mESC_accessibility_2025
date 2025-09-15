@@ -176,6 +176,22 @@ contraster <- function(dds,    # should contain colData and design
 
 # Visualize Btbd11 enhancer (Avsec et al CRISPR)
 
+## Print motif information
+
+Explore the range of affinity for the low-affinity Oct4-Sox2.
+
+```{r}
+motifs.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::filter(overlapsAny(., GRanges(coop_chrom, IRanges(coop_genomic_window[1], coop_genomic_window[2])))) %>%
+  plyranges::select(seq_match, seq_match_quantile, motif, motif_id)
+
+motifs.df %>% dplyr::arrange(seq_match_quantile) %>% dplyr::filter(motif=='Oct4-Sox2', mapping_state != 'bind') %>%
+  dplyr::mutate(acc_contrib_q = ecdf(acc_contrib)(acc_contrib),
+                bind_contrib_q = ecdf(bind_contrib)(bind_contrib)) %>%
+  dplyr::mutate(order_by_seq = 1:nrow(.), perc_by_order = order_by_seq/nrow(.)) %>% dplyr::filter(motif_id==139897) %>%
+  dplyr::select(bind_contrib_q, acc_contrib_q, order_by_seq, perc_by_order, seq_match, seq_match_quantile, motif, motif_id)
+```
+
 ## Read in perturbation data
 
 ```{r}
@@ -937,10 +953,12 @@ For perturbations and experiments, what are the differences between the differen
 
 ### Perturbations
 
+ATAC-seq predicted reads from the accessibility model.
+
 ```{r}
 #Plot perturbation summaries
 perturbs_reads.plot<-perturbs.df %>% 
-  dplyr::filter(model_name=='atac_wt_fold1', genomic_position %in% c(context_genomic_window[1]:context_genomic_window[2])) %>%
+  dplyr::filter(model_name=='bpnet_osknz', genomic_position %in% c(context_genomic_window[1]:context_genomic_window[2])) %>%
   dplyr::group_by(state) %>%
   dplyr::summarize(sum_pred = sum(pred)) %>%
   ggplot(., aes(x = state, y = sum_pred))+
@@ -950,6 +968,23 @@ perturbs_reads.plot<-perturbs.df %>%
 perturbs_reads.plot
 ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary.png'), perturbs_reads.plot, width = 7, height = 3)
 ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary.pdf'), perturbs_reads.plot, width = 7, height = 3)
+```
+
+ChIP-nexus predicted reads from the binding model.
+
+```{r}
+#Plot perturbation summaries
+perturbs_reads.plot<-perturbs.df %>% 
+  dplyr::filter(model_name=='bpnet_osknz_fold1', task == 'sox2', genomic_position %in% c(context_genomic_window[1]:context_genomic_window[2])) %>%
+  dplyr::group_by(state) %>%
+  dplyr::summarize(sum_pred = sum(pred)) %>%
+  ggplot(., aes(x = state, y = sum_pred))+
+  geom_bar(stat = 'identity')+
+  coord_flip()+
+  theme_classic()
+perturbs_reads.plot
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary_nexus.png'), perturbs_reads.plot, width = 7, height = 3)
+ggsave(paste0(figure_filepath, '/Ark1cl_crispr_context_perturbations_summary_nexus.pdf'), perturbs_reads.plot, width = 7, height = 3)
 ```
 
 ### Experiments
@@ -1166,14 +1201,7 @@ nexus_exp.bw.list<-list(
   'A_sox2' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_combined_normalized_positive.bw',
                   neg = 'bw/mesc_Akr1cl_scenario_context_mut_A_sox2_nexus_combined_normalized_negative.bw'),
   'B_sox2' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_combined_normalized_positive.bw',
-             neg = 'bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_combined_normalized_negative.bw'),
-  
-  'AB_klf4' = list(pos = 'bw/mesc_R1_klf4_nexus_combined_normalized_positive.bw',
-                   neg = 'bw/mesc_R1_klf4_nexus_combined_normalized_negative.bw'),
-  'A_klf4' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_combined_normalized_positive.bw',
-                  neg = 'bw/mesc_Akr1cl_scenario_context_mut_A_klf4_nexus_combined_normalized_negative.bw'),
-  'B_klf4' = list(pos = 'bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_combined_normalized_positive.bw',
-             neg = 'bw/mesc_Akr1cl_scenario_context_mut_B_klf4_nexus_combined_normalized_negative.bw')
+             neg = 'bw/mesc_Akr1cl_scenario_context_mut_B_sox2_nexus_combined_normalized_negative.bw')
 )
 
 nexus_exp.df<-lapply(names(nexus_exp.bw.list), function(x){

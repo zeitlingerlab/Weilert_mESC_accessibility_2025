@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-07-16" />
+<meta name="date" content="2025-09-15" />
 
 <title>Analysis of enhancer context</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Analysis of enhancer context</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">July 16, 2025</h4>
+<h4 class="date">September 15, 2025</h4>
 
 </div>
 
@@ -2089,14 +2089,21 @@ motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;
               dplyr::group_by(motif) %&gt;%
   dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
                    acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                   acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                   acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;), 
                    bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
-                   bind_vs_pwm = cor(bind_perturb, seq_match_quantile)) %&gt;% as.data.frame</code></pre>
-<pre><code>##       motif acc_vs_dist  acc_vs_pwm bind_vs_dist bind_vs_pwm
-## 1      Klf4  -0.2098668 -0.09615371  -0.06573936 0.075843426
-## 2     Nanog  -0.1485153 -0.04054455  -0.16754943 0.009013241
-## 3 Oct4-Sox2  -0.3718576  0.05968689  -0.22886379 0.173796130
-## 4      Sox2  -0.3803309  0.11262841  -0.23195322 0.069640717
-## 5      Zic3  -0.2831445  0.06628451  -0.18323082 0.344965814</code></pre>
+                   bind_vs_atac_max = cor(bind_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                   bind_vs_summit = cor(bind_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;), 
+                   bind_vs_pwm = cor(bind_perturb, seq_match_quantile)) %&gt;% as.data.frame %&gt;%
+  dplyr::filter(motif %in% c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;, &#39;Nanog&#39;)) %&gt;% as.data.frame</code></pre>
+<pre><code>##       motif acc_vs_dist  acc_vs_pwm acc_vs_atac_max acc_vs_summit bind_vs_dist
+## 1     Nanog  -0.1485153 -0.04054455      -0.1125788    -0.1402738   -0.1675494
+## 2 Oct4-Sox2  -0.3718576  0.05968689      -0.3539685    -0.3083501   -0.2288638
+## 3      Sox2  -0.3803309  0.11262841      -0.3380935    -0.2692060   -0.2319532
+##   bind_vs_atac_max bind_vs_summit bind_vs_pwm
+## 1       -0.1771859     -0.1127491 0.009013241
+## 2       -0.2479359     -0.2258860 0.173796130
+## 3       -0.2707207     -0.2176498 0.069640717</code></pre>
 <pre class="r"><code>#All motifs
 motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance) %&gt;%
               dplyr::group_by(motif) %&gt;%
@@ -2586,11 +2593,20 @@ motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;
                                       distance_from_pioneering_center_abs!=0,
                                       motif==&#39;Sox2&#39;, 
                                       seq %in% c(motifs_w_centers.df %&gt;% dplyr::filter(region_id==curated_region_id, motif==&#39;Sox2&#39;) %&gt;% .$seq)) %&gt;%
-  dplyr::group_by(motif) %&gt;%
+  dplyr::group_by(motif, seq) %&gt;%
   dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
-                   bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;)) %&gt;% as.data.frame</code></pre>
-<pre><code>##   motif acc_vs_dist bind_vs_dist
-## 1  Sox2  -0.4482717   -0.3300366</code></pre>
+                   acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                   acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;), 
+                   bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
+                   bind_vs_atac_max = cor(bind_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                   bind_vs_summit = cor(bind_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;)) %&gt;% 
+  as.data.frame</code></pre>
+<pre><code>##   motif       seq acc_vs_dist acc_vs_atac_max acc_vs_summit bind_vs_dist
+## 1  Sox2 GACAAAGAC  -0.3796080      -0.3928746    -0.2949084   -0.2451523
+## 2  Sox2 GACAAAGGG  -0.4656125      -0.4646513    -0.2214561   -0.3537827
+##   bind_vs_atac_max bind_vs_summit
+## 1       -0.4312172     -0.2451154
+## 2       -0.3783362     -0.2822924</code></pre>
 <pre class="r"><code>#All motifs
 motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance,
                                       motif==&#39;Sox2&#39;, 

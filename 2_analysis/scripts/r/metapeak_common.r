@@ -23,7 +23,7 @@ read_matrix <- function(gr, cov, reverse_reads=FALSE, df=FALSE, nu=25) {
 	reads.m <- matrix(as.numeric(unlist(reads.list, use.name=FALSE)), nrow=length(reads.list), byrow=T)
 	if(reverse_reads == T)reads.m <- reads.m[, ncol(reads.m):1]
   }else{
-    reads.list <- regionApply(gr, cov, as.numeric)
+    # reads.list <- regionApply(gr, cov, as.numeric)
 	  #rl <- as(gr, "GRangesList")
 	  rl <- split(gr, seqnames(gr))
 	  rl <- rl[which(lapply(rl, function(x)length(x))!=0)] #eliminate chromosomes that are not used

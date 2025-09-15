@@ -313,33 +313,39 @@ These plots give us an idea of what the motif relationships look like.
 ## Summarize by motif
 
 ```{r}
-motif_summary.df<-motifs.df %>%
-  dplyr::group_by(motif, seq) %>%
+motif_summary.df<-lapply(c('both|acc', 'both|bind', 'both|bind|acc'), function(y){
   
-  #First, take median to get standard response across each individual sequence (i.e. ACAA is not that hard to get more than 1x)
-  dplyr::summarize(bind_marg = median(bind_marg),
-                   bind_perturb = median(bind_perturb),
-                   acc_marg = median(acc_marg),
-                   acc_perturb = median(acc_perturb)) %>%
+  motifs.df %>%
+    plyranges::filter(grepl(y, mapping_state), !is_across_erv) %>%
+    dplyr::group_by(motif, seq, mapping_state) %>%
+    
+    #First, take median to get standard response across each individual sequence (i.e. ACAA is not that hard to get more than 1x)
+    dplyr::summarize(bind_marg = median(bind_marg),
+                     bind_perturb = median(bind_perturb),
+                     acc_marg = median(acc_marg),
+                     acc_perturb = median(acc_perturb)) %>%
+    
+    #Then, take median across each individual sequences, then summarize
+    dplyr::group_by(motif) %>%
+    dplyr::summarize(med_bind_marg = median(bind_marg),
+                     med_bind_perturb = median(bind_perturb),
+                     med_acc_marg = median(acc_marg),
+                     med_acc_perturb = median(acc_perturb)) %>%  
+    as.data.table %>%
+    melt.data.table(id.vars = 'motif') %>%
+    tidyr::separate(col = variable, into = c(NA, 'model', 'pred_type')) %>%
+    dplyr::mutate(motif = factor(motif, names(motif_to_task.list)),
+                  pred_type = factor(pred_type, c('perturb', 'marg')),
+                  mapping_state = y)
   
-  #Then, take median across each individual sequences, then summarize
-  dplyr::group_by(motif) %>%
-  dplyr::summarize(med_bind_marg = median(bind_marg),
-                   med_bind_perturb = median(bind_perturb),
-                   med_acc_marg = median(acc_marg),
-                   med_acc_perturb = median(acc_perturb)) %>%  
-  as.data.table %>%
-  melt.data.table(id.vars = 'motif') %>%
-  tidyr::separate(col = variable, into = c(NA, 'model', 'pred_type')) %>%
-  dplyr::mutate(motif = factor(motif, names(motif_to_task.list)),
-                pred_type = factor(pred_type, c('perturb', 'marg')))
+}) %>% rbindlist()
 
 summary.plot<-ggplot(motif_summary.df, aes(x = motif, y = value, fill = pred_type))+
   geom_bar(stat = 'identity', position = 'dodge')+
-  facet_grid(. ~ model)+
+  facet_grid(mapping_state ~ model)+
   theme_classic() + theme(legend.position = 'bottom')
-ggsave(paste0(figure_filepath, '/motif_response_summary.png'), summary.plot, height = 4, width = 4)
-ggsave(paste0(figure_filepath, '/motif_response_summary.pdf'), summary.plot, height = 4, width = 4)
+ggsave(paste0(figure_filepath, '/motif_response_summary.png'), summary.plot, height = 12, width = 4)
+ggsave(paste0(figure_filepath, '/motif_response_summary.pdf'), summary.plot, height = 12, width = 4)
 ```
 
 ## Summarize individual locus (Btbd11)

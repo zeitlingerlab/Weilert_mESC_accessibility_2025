@@ -484,8 +484,13 @@ motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_d
               dplyr::group_by(motif) %>%
   dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
                    acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                   acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                   acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman'), 
                    bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
-                   bind_vs_pwm = cor(bind_perturb, seq_match_quantile)) %>% as.data.frame
+                   bind_vs_atac_max = cor(bind_perturb, distance_from_atac_max, method = 'spearman'), 
+                   bind_vs_summit = cor(bind_perturb, distance_from_peak_summit.distance, method = 'spearman'), 
+                   bind_vs_pwm = cor(bind_perturb, seq_match_quantile)) %>% as.data.frame %>%
+  dplyr::filter(motif %in% c('Oct4-Sox2','Sox2', 'Nanog')) %>% as.data.frame
 
 #All motifs
 motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance) %>%
@@ -558,9 +563,14 @@ motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_d
                                       distance_from_pioneering_center_abs!=0,
                                       motif=='Sox2', 
                                       seq %in% c(motifs_w_centers.df %>% dplyr::filter(region_id==curated_region_id, motif=='Sox2') %>% .$seq)) %>%
-  dplyr::group_by(motif) %>%
+  dplyr::group_by(motif, seq) %>%
   dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
-                   bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = 'spearman')) %>% as.data.frame
+                   acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                   acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman'), 
+                   bind_vs_dist = cor(bind_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
+                   bind_vs_atac_max = cor(bind_perturb, distance_from_atac_max, method = 'spearman'), 
+                   bind_vs_summit = cor(bind_perturb, distance_from_peak_summit.distance, method = 'spearman')) %>% 
+  as.data.frame
 
 #All motifs
 motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance,
