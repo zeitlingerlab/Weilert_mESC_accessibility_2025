@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-09-11" />
+<meta name="date" content="2025-09-16" />
 
 <title>PWM-scan for motifs</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">PWM-scan for motifs</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">September 11, 2025</h4>
+<h4 class="date">September 16, 2025</h4>
 
 </div>
 
@@ -2628,6 +2628,60 @@ filler&lt;-mclapply(c(&#39;Klf4&#39;,&#39;Sox2&#39;,&#39;Oct4-Sox2&#39;), functi
 
   }, mc.cores = 3)</code></pre>
 </div>
+<div id="plot-pwm-score-distributions" class="section level2">
+<h2>Plot PWM score distributions</h2>
+<pre class="r"><code>sampled_motif_n&lt;-5000
+
+#First, order all heatmaps either by seuqence match or total binding levels of motif
+plot.list&lt;-mclapply(names(all_motifs.list), function(x){
+    
+    #Next, do this across both binding and accessibility models
+    lapply(c(&#39;acc&#39;, &#39;bind&#39;), function(y){
+      
+      #Filter out Nanog motifs from accessibility models (they dont exist)
+      if(!((x==&#39;Nanog&#39;) &amp; (y==&#39;acc&#39;))){
+        
+        message(x, y)
+        
+        #Extract all CWM scored motifs
+        cwm.gr&lt;-motifs.gr %&gt;% plyranges::filter(motif==x, mapping_state %in% c(&#39;both&#39;, y))
+        cwm.df&lt;-cwm.gr %&gt;% as.data.frame %&gt;%
+          dplyr::left_join(all_motifs.list[[x]]$motifs %&gt;% as.data.frame %&gt;% dplyr::select(motif_id, pwm_match_score)) %&gt;%
+          dplyr::arrange(desc(pwm_match_score))
+        
+        #Extract all PWM scored motifs
+        pwm.gr&lt;-all_motifs.list[[x]]$pwms
+        pwm_only.df&lt;-pwm.gr[overlapsAny(pwm.gr, rtracklayer::import(paste0(&#39;bed/mapped_motifs/all_&#39;, x, &#39;_pwm_only_motifs.bed&#39;)), ignore.strand = T)] %&gt;%
+          as.data.frame %&gt;%
+          plyranges::arrange(desc(pwm_match_score)) %&gt;% head(sampled_motif_n)
+    
+        #Plot PWM scores of side features
+        cwm_pwm_score_side.plot&lt;-cwm.df %&gt;%
+          dplyr::mutate(row = 1:nrow(.)) %&gt;%
+          ggplot(., aes(y = pwm_match_score, x = row))+
+          ggrastr::rasterize(geom_bar(stat = &#39;identity&#39;, color = &#39;#c2b59b&#39;), dpi=300) + 
+          scale_y_continuous(limits = c(0, 15), expand = c(0,0))+
+          scale_x_continuous(expand=c(0,0))+
+          coord_flip()+
+          theme_classic()
+        
+        pwm_pwm_score_side.plot&lt;-pwm_only.df %&gt;%
+          dplyr::mutate(row = 1:nrow(.)) %&gt;%
+          ggplot(., aes(y = pwm_match_score, x = row))+
+          ggrastr::rasterize(geom_bar(stat = &#39;identity&#39;, color = &#39;#c2b59b&#39;), dpi=300) + 
+          scale_y_continuous(limits = c(0, 15), expand = c(0,0))+
+          scale_x_continuous(expand=c(0,0))+
+          coord_flip()+
+          theme_classic()
+        
+        pwm_score_side.plot&lt;-cwm_pwm_score_side.plot + pwm_pwm_score_side.plot
+        ggsave(paste0(figure_filepath, &#39;/pwm_score_side_plot_&#39;, y, &#39;_&#39;, x, &#39;.png&#39;), pwm_score_side.plot, height = 6, width = 3)
+        ggsave(paste0(figure_filepath, &#39;/pwm_score_side_plot_&#39;, y, &#39;_&#39;, x, &#39;.pdf&#39;), pwm_score_side.plot, height = 6, width = 3)
+      }
+    })
+    return(plot)
+  })</code></pre>
+</div>
 <div id="validate-that-pwm-only-motifs-do-not-maintain-good-coverage" class="section level2">
 <h2>Validate that PWM-only motifs do not maintain good coverage</h2>
 <p>Plot direct coverage of motifs based on two mapping strategies.</p>
@@ -2897,60 +2951,6 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
     return(plot)
   })
 })</code></pre>
-</div>
-<div id="plot-pwm-score-distributions" class="section level2">
-<h2>Plot PWM score distributions</h2>
-<pre class="r"><code>sampled_motif_n&lt;-5000
-
-#First, order all heatmaps either by seuqence match or total binding levels of motif
-plot.list&lt;-mclapply(names(all_motifs.list), function(x){
-    
-    #Next, do this across both binding and accessibility models
-    lapply(c(&#39;acc&#39;, &#39;bind&#39;), function(y){
-      
-      #Filter out Nanog motifs from accessibility models (they dont exist)
-      if(!((x==&#39;Nanog&#39;) &amp; (y==&#39;acc&#39;))){
-        
-        message(x, y)
-        
-        #Extract all CWM scored motifs
-        cwm.gr&lt;-motifs.gr %&gt;% plyranges::filter(motif==x, mapping_state %in% c(&#39;both&#39;, y))
-        cwm.df&lt;-cwm.gr %&gt;% as.data.frame %&gt;%
-          dplyr::left_join(all_motifs.list[[x]]$motifs %&gt;% as.data.frame %&gt;% dplyr::select(motif_id, pwm_match_score)) %&gt;%
-          dplyr::arrange(desc(pwm_match_score))
-        
-        #Extract all PWM scored motifs
-        pwm.gr&lt;-all_motifs.list[[x]]$pwms
-        pwm_only.df&lt;-pwm.gr[overlapsAny(pwm.gr, rtracklayer::import(paste0(&#39;bed/mapped_motifs/all_&#39;, x, &#39;_pwm_only_motifs.bed&#39;)), ignore.strand = T)] %&gt;%
-          as.data.frame %&gt;%
-          plyranges::arrange(desc(pwm_match_score)) %&gt;% head(sampled_motif_n)
-    
-        #Plot PWM scores of side features
-        cwm_pwm_score_side.plot&lt;-cwm.df %&gt;%
-          dplyr::mutate(row = 1:nrow(.)) %&gt;%
-          ggplot(., aes(y = pwm_match_score, x = row))+
-          ggrastr::rasterize(geom_bar(stat = &#39;identity&#39;, color = &#39;black&#39;), dpi=300) + 
-          scale_y_continuous(limits = c(0, 15), expand = c(0,0))+
-          scale_x_continuous(expand=c(0,0))+
-          coord_flip()+
-          theme_classic()
-        
-        pwm_pwm_score_side.plot&lt;-pwm_only.df %&gt;%
-          dplyr::mutate(row = 1:nrow(.)) %&gt;%
-          ggplot(., aes(y = pwm_match_score, x = row))+
-          ggrastr::rasterize(geom_bar(stat = &#39;identity&#39;, color = &#39;black&#39;), dpi=300) + 
-          scale_y_continuous(limits = c(0, 15), expand = c(0,0))+
-          scale_x_continuous(expand=c(0,0))+
-          coord_flip()+
-          theme_classic()
-        
-        pwm_score_side.plot&lt;-cwm_pwm_score_side.plot + pwm_pwm_score_side.plot
-        ggsave(paste0(figure_filepath, &#39;/pwm_score_side_plot_&#39;, y, &#39;_&#39;, x, &#39;.png&#39;), pwm_score_side.plot, height = 6, width = 3)
-        ggsave(paste0(figure_filepath, &#39;/pwm_score_side_plot_&#39;, y, &#39;_&#39;, x, &#39;.pdf&#39;), pwm_score_side.plot, height = 6, width = 3)
-      }
-    })
-    return(plot)
-  })</code></pre>
 </div>
 </div>
 <div id="session-information" class="section level1">

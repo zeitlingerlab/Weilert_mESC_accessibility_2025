@@ -1430,6 +1430,50 @@ ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_wt_rep_comparison.p
 ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_wt_rep_comparison.pdf'), plotwt, height = 3, width = 3)
 ```
 
+Replot to make this less confusing as a correlation heatmap.
+
+```{r}
+cor.df<-lapply(crispr_context_nexus_reps.path %>% grep('_sox2_nexus_1_positive.bw', ., value = T), function(x){
+  crispr_context_cov_w_coord.df$repa<-crispr_context_cov_w_coord.df[[x]]
+  crispr_context_cov_w_coord.df$repb<-crispr_context_cov_w_coord.df[[gsub('_1_', '_2_', x)]]
+  crispr_context_cov_w_coord.df$repc<-crispr_context_cov_w_coord.df[[gsub('_1_', '_3_', x)]]
+  
+  crispr_context_cov_w_coord.df %>% 
+    dplyr::summarize(
+      cor_1_v_2 = cor(repa, repb, method = 'spearman'),
+      cor_1_v_3 = cor(repa, repc, method = 'spearman'),
+      cor_2_v_3 = cor(repa, repc, method = 'spearman')
+    ) %>%
+    dplyr::mutate(bw = x)
+}) %>% rbindlist() %>%
+  tidyr::pivot_longer(cols = -bw, names_to = 'comparison', values_to = 'cor') %>%
+  dplyr::mutate(bw = gsub('bw/mesc_Akr1cl_scenario_context_mut_', '', bw) %>% gsub('_sox2_nexus_1_positive.bw', '', .)) %>%
+  dplyr::mutate(cor = round(cor, 2))
+
+cor.plot<-ggplot(cor.df, aes(x = comparison, y = bw, fill = cor))+
+  geom_tile(color = 'black')+
+  geom_text(aes(label = cor))+
+  scale_fill_gradient(low = 'white', high = '#b31f2c', limits = c(.7, 1))+
+  theme_classic()
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_replicate_correlations.png'), cor.plot, height = 4, width = 4)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_replicate_correlations.pdf'), cor.plot, height = 4, width = 4)
+
+#Also correlate the wildtype replicates for baseline
+wt.plot<-data.table(cor = cor(crispr_context_cov_w_coord.df$`bw/mesc_R1_sox2_nexus_15_positive.bw`,
+                     crispr_context_cov_w_coord.df$`bw/mesc_R1_sox2_nexus_16_positive.bw`, 
+                     method = 'spearman')) %>%
+  ggplot(., aes(x = 1, y = 1, fill = cor))+
+  geom_tile(color = 'black')+
+  geom_text(aes(label = cor))+
+  scale_fill_gradient(low = 'white', high = '#b31f2c', limits = c(.7, 1))+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_replicate_correlations.png'), cor.plot + wt.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/Akr1cl_crispr_context_nexus_replicate_correlations.pdf'), cor.plot + wt.plot, height = 4, width = 8)
+```
+
+
+
 ### Developmental enhancer consistency
 
 Do our conditions and CRISPR mutants look consistent across regions of interest that are not the CRISPR locus?

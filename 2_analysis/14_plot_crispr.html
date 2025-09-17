@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-09-12" />
+<meta name="date" content="2025-09-17" />
 
 <title>Visualize CRISPR perturbations</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Visualize CRISPR perturbations</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">September 12, 2025</h4>
+<h4 class="date">September 17, 2025</h4>
 
 </div>
 
@@ -2540,11 +2540,11 @@ dds &lt;- DESeq(dds)</code></pre>
 }) %&gt;% rbindlist()                
 
 deseq_comparisons.df</code></pre>
-<pre><code>##    baseMean log2FoldChange      lfcSE     stat       pvalue         padj
-##       &lt;num&gt;          &lt;num&gt;      &lt;num&gt;    &lt;num&gt;        &lt;num&gt;        &lt;num&gt;
-## 1:  3693.95      0.3734260 0.06607895  5.65121 1.593222e-08 9.309817e-07
-## 2:  3693.95      0.1880535 0.06588845  2.85412 4.315624e-03 1.042627e-02
-## 3:  3693.95      0.6725339 0.06679024 10.06934 7.548011e-24 7.492394e-21
+<pre><code>##    baseMean log2FoldChange      lfcSE      stat       pvalue         padj
+##       &lt;num&gt;          &lt;num&gt;      &lt;num&gt;     &lt;num&gt;        &lt;num&gt;        &lt;num&gt;
+## 1:  3693.95      0.3734261 0.06608023  5.651101 1.594232e-08 9.315719e-07
+## 2:  3693.95      0.1880535 0.06588973  2.854064 4.316379e-03 1.042809e-02
+## 3:  3693.95      0.6725339 0.06679151 10.069153 7.562689e-24 7.506964e-21
 ##    seqnames    start      end width strand   name score signalValue  pValue
 ##      &lt;fctr&gt;    &lt;int&gt;    &lt;int&gt; &lt;int&gt; &lt;fctr&gt; &lt;char&gt; &lt;num&gt;       &lt;num&gt;   &lt;num&gt;
 ## 1:    chr10 85539345 85540344  1000      *   &lt;NA&gt;  1000     8.51039 710.946
@@ -3152,6 +3152,44 @@ plotwt&lt;-ggplot(data = crispr_context_cov_w_coord.df, aes(x = log(`bw/mesc_R1_
   theme_classic() + theme(legend.position = &#39;none&#39;)
 ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_wt_rep_comparison.png&#39;), plotwt, height = 3, width = 3)
 ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_wt_rep_comparison.pdf&#39;), plotwt, height = 3, width = 3)</code></pre>
+<p>Replot to make this less confusing as a correlation heatmap.</p>
+<pre class="r"><code>cor.df&lt;-lapply(crispr_context_nexus_reps.path %&gt;% grep(&#39;_sox2_nexus_1_positive.bw&#39;, ., value = T), function(x){
+  crispr_context_cov_w_coord.df$repa&lt;-crispr_context_cov_w_coord.df[[x]]
+  crispr_context_cov_w_coord.df$repb&lt;-crispr_context_cov_w_coord.df[[gsub(&#39;_1_&#39;, &#39;_2_&#39;, x)]]
+  crispr_context_cov_w_coord.df$repc&lt;-crispr_context_cov_w_coord.df[[gsub(&#39;_1_&#39;, &#39;_3_&#39;, x)]]
+  
+  crispr_context_cov_w_coord.df %&gt;% 
+    dplyr::summarize(
+      cor_1_v_2 = cor(repa, repb, method = &#39;spearman&#39;),
+      cor_1_v_3 = cor(repa, repc, method = &#39;spearman&#39;),
+      cor_2_v_3 = cor(repa, repc, method = &#39;spearman&#39;)
+    ) %&gt;%
+    dplyr::mutate(bw = x)
+}) %&gt;% rbindlist() %&gt;%
+  tidyr::pivot_longer(cols = -bw, names_to = &#39;comparison&#39;, values_to = &#39;cor&#39;) %&gt;%
+  dplyr::mutate(bw = gsub(&#39;bw/mesc_Akr1cl_scenario_context_mut_&#39;, &#39;&#39;, bw) %&gt;% gsub(&#39;_sox2_nexus_1_positive.bw&#39;, &#39;&#39;, .)) %&gt;%
+  dplyr::mutate(cor = round(cor, 2))
+
+cor.plot&lt;-ggplot(cor.df, aes(x = comparison, y = bw, fill = cor))+
+  geom_tile(color = &#39;black&#39;)+
+  geom_text(aes(label = cor))+
+  scale_fill_gradient(low = &#39;white&#39;, high = &#39;#b31f2c&#39;, limits = c(.7, 1))+
+  theme_classic()
+ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_replicate_correlations.png&#39;), cor.plot, height = 4, width = 4)
+ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_replicate_correlations.pdf&#39;), cor.plot, height = 4, width = 4)
+
+#Also correlate the wildtype replicates for baseline
+wt.plot&lt;-data.table(cor = cor(crispr_context_cov_w_coord.df$`bw/mesc_R1_sox2_nexus_15_positive.bw`,
+                     crispr_context_cov_w_coord.df$`bw/mesc_R1_sox2_nexus_16_positive.bw`, 
+                     method = &#39;spearman&#39;)) %&gt;%
+  ggplot(., aes(x = 1, y = 1, fill = cor))+
+  geom_tile(color = &#39;black&#39;)+
+  geom_text(aes(label = cor))+
+  scale_fill_gradient(low = &#39;white&#39;, high = &#39;#b31f2c&#39;, limits = c(.7, 1))+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_replicate_correlations.png&#39;), cor.plot + wt.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, &#39;/Akr1cl_crispr_context_nexus_replicate_correlations.pdf&#39;), cor.plot + wt.plot, height = 4, width = 8)</code></pre>
 </div>
 <div id="developmental-enhancer-consistency-1" class="section level3">
 <h3>Developmental enhancer consistency</h3>
@@ -3260,10 +3298,10 @@ dds &lt;- DESeq(dds)</code></pre>
 }) %&gt;% rbindlist()
 
 deseq_comparisons.df</code></pre>
-<pre><code>##    baseMean log2FoldChange     lfcSE      stat       pvalue         padj
-##       &lt;num&gt;          &lt;num&gt;     &lt;num&gt;     &lt;num&gt;        &lt;num&gt;        &lt;num&gt;
-## 1: 931.3056      1.6677730 0.0988338 16.874521 6.928462e-64 4.104842e-61
-## 2: 931.3056      0.2282224 0.0896787  2.544889 1.093124e-02 2.882125e-02
+<pre><code>##    baseMean log2FoldChange      lfcSE      stat       pvalue         padj
+##       &lt;num&gt;          &lt;num&gt;      &lt;num&gt;     &lt;num&gt;        &lt;num&gt;        &lt;num&gt;
+## 1: 931.3056      1.6677730 0.09883465 16.874377 6.945437e-64 4.114899e-61
+## 2: 931.3056      0.2282224 0.08967963  2.544863 1.093206e-02 2.882342e-02
 ##    seqnames    start      end width strand   name score signalValue  pValue
 ##      &lt;fctr&gt;    &lt;int&gt;    &lt;int&gt; &lt;int&gt; &lt;fctr&gt; &lt;char&gt; &lt;num&gt;       &lt;num&gt;   &lt;num&gt;
 ## 1:     chr1 65037228 65038227  1000      *   &lt;NA&gt;  1000      8.6952 385.814
