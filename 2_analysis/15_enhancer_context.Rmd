@@ -360,10 +360,10 @@ bind_vs_acc_genomic.plot.list<-lapply(names(motif_to_task.list), function(x){
               dplyr::filter(motif==x, 
                             distance_from_pioneering_center_abs==0) %>%
               dplyr::arrange(distance_from_pioneering_center_abs), aes(x = bind_perturb, y = acc_perturb),
-              color = 'gray', size = .1)+
+              color = 'gray', size = .1, shape = 4)+
     ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = .1)+
     ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
-    scale_color_gradientn(colours = c(inferno(5, begin = .3, end = 1)),
+    scale_color_gradientn(colours = rev(c(inferno(5, begin = .3, end = 1))),
                           name = 'Distance from strongest pioneer', 
                           limits = c(0, max_distance))+
     scale_x_continuous(name = 'Binding perturb. log(WT/dA)', limits = c(-1, 4))+
@@ -542,15 +542,15 @@ bind_vs_acc_genomic_vs_dist.plot<-ggplot(motifs_w_centers.df %>%
                                                         dplyr::filter(region_id==curated_region_id, motif=='Sox2') %>% .$seq)) %>%
                              dplyr::filter(distance_from_pioneering_center_abs==0) %>%
                              dplyr::arrange(distance_from_pioneering_center_abs), aes(x = bind_perturb, y = acc_perturb),
-                           color = 'gray', size = .1)+
-  ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = .4)+
+                           color = 'gray', size = 1.5, shape = 4)+
+  ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = 1)+
   geom_point(data = motifs_w_centers.df %>% dplyr::filter(region_id==curated_region_id, motif=='Sox2'), color = 'black')+
   ggpubr::stat_cor(method = 'spearman', label.x.npc = 'left', label.y.npc = 'top')+
-  scale_color_gradientn(colours = c(inferno(5, begin = .3, end = 1)),
+  scale_color_gradientn(colours = rev(c(turbo(5, begin = 0.05, end = .95))),
                         name = 'Distance from strongest pioneer', 
                         limits = c(0, max_distance))+
-  scale_x_continuous(name = 'Binding perturb. log(WT/dA)', limits = c(-.2, 2))+
-  scale_y_continuous(name = 'Acc perturb. log(WT/dA)', limits = c(-.2, 2))+
+  scale_x_continuous(name = 'Binding perturb. log(WT/dA)', limits = c(-.2, 1.25))+
+  scale_y_continuous(name = 'Acc perturb. log(WT/dA)', limits = c(-.2, 1.25))+
   facet_grid(. ~ seq)+
   ggtitle('Sox2')+
   theme_classic() + theme(legend.position = 'bottom')

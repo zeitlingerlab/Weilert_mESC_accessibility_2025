@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-09-17" />
+<meta name="date" content="2025-10-03" />
 
 <title>Analysis of enhancer context</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Analysis of enhancer context</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">September 17, 2025</h4>
+<h4 class="date">October 03, 2025</h4>
 
 </div>
 
@@ -1809,10 +1809,10 @@ motifs_w_centers.df&lt;-motifs.df %&gt;% dplyr::filter(mapping_state != &#39;acc
               dplyr::filter(motif==x, 
                             distance_from_pioneering_center_abs==0) %&gt;%
               dplyr::arrange(distance_from_pioneering_center_abs), aes(x = bind_perturb, y = acc_perturb),
-              color = &#39;gray&#39;, size = .1)+
+              color = &#39;gray&#39;, size = .1, shape = 4)+
     ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = .1)+
     ggpubr::stat_cor(method = &#39;spearman&#39;, label.x.npc = &#39;left&#39;, label.y.npc = &#39;top&#39;)+
-    scale_color_gradientn(colours = c(inferno(5, begin = .3, end = 1)),
+    scale_color_gradientn(colours = rev(c(inferno(5, begin = .3, end = 1))),
                           name = &#39;Distance from strongest pioneer&#39;, 
                           limits = c(0, max_distance))+
     scale_x_continuous(name = &#39;Binding perturb. log(WT/dA)&#39;, limits = c(-1, 4))+
@@ -2738,15 +2738,15 @@ motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;
                                                         dplyr::filter(region_id==curated_region_id, motif==&#39;Sox2&#39;) %&gt;% .$seq)) %&gt;%
                              dplyr::filter(distance_from_pioneering_center_abs==0) %&gt;%
                              dplyr::arrange(distance_from_pioneering_center_abs), aes(x = bind_perturb, y = acc_perturb),
-                           color = &#39;gray&#39;, size = .1)+
-  ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = .4)+
+                           color = &#39;gray&#39;, size = 1.5, shape = 4)+
+  ggrastr::geom_point_rast(aes(color = distance_from_pioneering_center_abs), size = 1)+
   geom_point(data = motifs_w_centers.df %&gt;% dplyr::filter(region_id==curated_region_id, motif==&#39;Sox2&#39;), color = &#39;black&#39;)+
   ggpubr::stat_cor(method = &#39;spearman&#39;, label.x.npc = &#39;left&#39;, label.y.npc = &#39;top&#39;)+
-  scale_color_gradientn(colours = c(inferno(5, begin = .3, end = 1)),
+  scale_color_gradientn(colours = rev(c(turbo(5, begin = 0.05, end = .95))),
                         name = &#39;Distance from strongest pioneer&#39;, 
                         limits = c(0, max_distance))+
-  scale_x_continuous(name = &#39;Binding perturb. log(WT/dA)&#39;, limits = c(-.2, 2))+
-  scale_y_continuous(name = &#39;Acc perturb. log(WT/dA)&#39;, limits = c(-.2, 2))+
+  scale_x_continuous(name = &#39;Binding perturb. log(WT/dA)&#39;, limits = c(-.2, 1.25))+
+  scale_y_continuous(name = &#39;Acc perturb. log(WT/dA)&#39;, limits = c(-.2, 1.25))+
   facet_grid(. ~ seq)+
   ggtitle(&#39;Sox2&#39;)+
   theme_classic() + theme(legend.position = &#39;bottom&#39;)

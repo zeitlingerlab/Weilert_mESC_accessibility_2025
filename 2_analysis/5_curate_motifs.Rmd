@@ -209,26 +209,6 @@ seqlets_all.df<-lapply(names(seqlet_ids.list), function(f){
                 medium_name = paste0(model, '_', motif)) %>%
   dplyr::arrange(model, motif, fold)
 
-filler<-lapply(seqlets_all.df$medium_name %>% unique, function(y){
-  seqlets.list<-seqlets_all.df %>% dplyr::filter(medium_name==y) %>% .$long_name %>% unique %>%
-    lapply(., function(x){
-      s.df<-seqlets_all.df %>% dplyr::filter(long_name==x)
-      seqs<-s.df$sequence
-      if((s.df$oriented_strand %>% unique)=='-'){
-        seqs<-DNAStringSet(seqs) %>% reverseComplement(.) %>% as.character(.)
-      }
-      return(seqs)
-    })
-  names(seqlets.list)<-seqlets_all.df %>% dplyr::filter(medium_name==y) %>% .$long_name %>% unique
-  seqlet.plot<-ggplot() + geom_logo(seqlets.list) + theme_logo() + 
-    facet_wrap(~seq_group, nrow = 1) +
-    scale_y_continuous(limits = c(0, 2))+
-    theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), 
-          axis.line = element_blank(), axis.ticks = element_blank())
-  ggsave(paste0(figure_filepath, '/seqlet_logo_', y, '.png'), seqlet.plot, height = 1, width = 8)
-  ggsave(paste0(figure_filepath, '/seqlet_logo_', y, '.pdf'), seqlet.plot, height = 1, width = 8)
-  return(NULL)
-})
 ```
 
 ## Bias model
@@ -248,6 +228,51 @@ filler<-lapply(c('counts', 'profile'), function(f){
           axis.line = element_blank(), axis.ticks = element_blank())
   ggsave(paste0(figure_filepath, '/seqlet_logo_bias_', f, '.png'), seqlet.plot, height = 1, width = 8)
   ggsave(paste0(figure_filepath, '/seqlet_logo_bias_', f, '.pdf'), seqlet.plot, height = 1, width = 8)
+  return(NULL)
+})
+```
+
+## Plot CWMs and PWMs of seqlets 
+
+```{r}
+#Plot all seqlet PWM and CWM logos
+filler<-lapply(seqlet_ids.df$motif %>% unique, function(x){
+  
+  seqlets.df<-seqlet_ids.df %>% dplyr::filter(motif==x) %>%
+    dplyr::select(pattern_name, metacluster_name, model, task, fold, oriented_strand, motif) %>%
+    unique()
+  
+  seqlets.plot<-mclapply(1:nrow(seqlets.df), function(y){
+
+    s.df<-seqlets.df[y,]
+    s.hdf5<-rhdf5::h5read(paste0('modiscolite/', s.df$model, '_', s.df$fold, '_', s.df$task, '_counts/modisco.h5'),
+                  paste0(s.df$metacluster, '/', s.df$pattern))
+    cwm<-s.hdf5$contrib_scores
+    pwm<-ppm_to_ic(s.hdf5$sequence, bg_freq = c(.3, .2, .2, .3))
+    
+    #Orient strand
+    if(s.df$oriented_strand=='-'){
+      cwm<-cwm[nrow(cwm):1,ncol(cwm):1]
+      pwm<-pwm[nrow(pwm):1,ncol(pwm):1]
+    }
+
+    rownames(cwm)<-c('A','C','G','T')
+    rownames(pwm)<-c('A','C','G','T')
+    pwm_and_cwm.list<-list(pwm = pwm, cwm = cwm)
+    y_prefix<-paste0(s.df$model_name %>% gsub('_specific', '', .) %>% gsub('histone_', '', .) %>% gsub('_strongest_gene_across_internal_cell_type_', '', .), '_', s.df$metacluster, '_', s.df$pattern)
+    names(pwm_and_cwm.list)<-paste0(y_prefix, c('_pwm', '_cwm'))
+    
+    pwm_and_cwm.logo<-ggseqlogo(pwm_and_cwm.list, method='custom', seq_type='dna') + 
+      facet_wrap(~seq_group, ncol = 1, scales='free') +
+      theme(axis.text.x = element_blank())+ ggtitle(paste0(s.df$fold, '_', s.df$model))
+    return(pwm_and_cwm.logo)
+    
+  }, mc.cores = threads) %>% wrap_plots(nrow = 1) + plot_annotation(title = x)
+
+  ggsave(paste0(figure_filepath, '/seqlet_cwm_logo_', x, '.png'), seqlets.plot,
+         width = nrow(seqlets.df)*4+1, height = 4)
+  ggsave(paste0(figure_filepath, '/seqlet_cwm_logo_', x, '.pdf'), seqlets.plot,
+         width = nrow(seqlets.df)*4+1, height = 4)
   return(NULL)
 })
 ```

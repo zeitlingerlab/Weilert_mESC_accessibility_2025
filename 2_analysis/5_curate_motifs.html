@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-06-12" />
+<meta name="date" content="2025-10-08" />
 
 <title>Curation of motifs</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Curation of motifs</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">June 12, 2025</h4>
+<h4 class="date">October 08, 2025</h4>
 
 </div>
 
@@ -1701,28 +1701,7 @@ model_performance.df %&gt;%
   dplyr::filter(!is.na(motif)) %&gt;%
   dplyr::mutate(long_name = paste0(model, &#39;_&#39;, fold, &#39;_&#39;, motif),
                 medium_name = paste0(model, &#39;_&#39;, motif)) %&gt;%
-  dplyr::arrange(model, motif, fold)
-
-filler&lt;-lapply(seqlets_all.df$medium_name %&gt;% unique, function(y){
-  seqlets.list&lt;-seqlets_all.df %&gt;% dplyr::filter(medium_name==y) %&gt;% .$long_name %&gt;% unique %&gt;%
-    lapply(., function(x){
-      s.df&lt;-seqlets_all.df %&gt;% dplyr::filter(long_name==x)
-      seqs&lt;-s.df$sequence
-      if((s.df$oriented_strand %&gt;% unique)==&#39;-&#39;){
-        seqs&lt;-DNAStringSet(seqs) %&gt;% reverseComplement(.) %&gt;% as.character(.)
-      }
-      return(seqs)
-    })
-  names(seqlets.list)&lt;-seqlets_all.df %&gt;% dplyr::filter(medium_name==y) %&gt;% .$long_name %&gt;% unique
-  seqlet.plot&lt;-ggplot() + geom_logo(seqlets.list) + theme_logo() + 
-    facet_wrap(~seq_group, nrow = 1) +
-    scale_y_continuous(limits = c(0, 2))+
-    theme(axis.title = element_blank(), axis.text.x = element_blank(), axis.text.y = element_blank(), 
-          axis.line = element_blank(), axis.ticks = element_blank())
-  ggsave(paste0(figure_filepath, &#39;/seqlet_logo_&#39;, y, &#39;.png&#39;), seqlet.plot, height = 1, width = 8)
-  ggsave(paste0(figure_filepath, &#39;/seqlet_logo_&#39;, y, &#39;.pdf&#39;), seqlet.plot, height = 1, width = 8)
-  return(NULL)
-})</code></pre>
+  dplyr::arrange(model, motif, fold)</code></pre>
 <div id="bias-model" class="section level2">
 <h2>Bias model</h2>
 <pre class="r"><code>filler&lt;-lapply(c(&#39;counts&#39;, &#39;profile&#39;), function(f){
@@ -1739,6 +1718,49 @@ filler&lt;-lapply(seqlets_all.df$medium_name %&gt;% unique, function(y){
           axis.line = element_blank(), axis.ticks = element_blank())
   ggsave(paste0(figure_filepath, &#39;/seqlet_logo_bias_&#39;, f, &#39;.png&#39;), seqlet.plot, height = 1, width = 8)
   ggsave(paste0(figure_filepath, &#39;/seqlet_logo_bias_&#39;, f, &#39;.pdf&#39;), seqlet.plot, height = 1, width = 8)
+  return(NULL)
+})</code></pre>
+</div>
+<div id="plot-cwms-and-pwms-of-seqlets" class="section level2">
+<h2>Plot CWMs and PWMs of seqlets</h2>
+<pre class="r"><code>#Plot all seqlet PWM and CWM logos
+filler&lt;-lapply(seqlet_ids.df$motif %&gt;% unique, function(x){
+  
+  seqlets.df&lt;-seqlet_ids.df %&gt;% dplyr::filter(motif==x) %&gt;%
+    dplyr::select(pattern_name, metacluster_name, model, task, fold, oriented_strand, motif) %&gt;%
+    unique()
+  
+  seqlets.plot&lt;-mclapply(1:nrow(seqlets.df), function(y){
+
+    s.df&lt;-seqlets.df[y,]
+    s.hdf5&lt;-rhdf5::h5read(paste0(&#39;modiscolite/&#39;, s.df$model, &#39;_&#39;, s.df$fold, &#39;_&#39;, s.df$task, &#39;_counts/modisco.h5&#39;),
+                  paste0(s.df$metacluster, &#39;/&#39;, s.df$pattern))
+    cwm&lt;-s.hdf5$contrib_scores
+    pwm&lt;-ppm_to_ic(s.hdf5$sequence, bg_freq = c(.3, .2, .2, .3))
+    
+    #Orient strand
+    if(s.df$oriented_strand==&#39;-&#39;){
+      cwm&lt;-cwm[nrow(cwm):1,ncol(cwm):1]
+      pwm&lt;-pwm[nrow(pwm):1,ncol(pwm):1]
+    }
+
+    rownames(cwm)&lt;-c(&#39;A&#39;,&#39;C&#39;,&#39;G&#39;,&#39;T&#39;)
+    rownames(pwm)&lt;-c(&#39;A&#39;,&#39;C&#39;,&#39;G&#39;,&#39;T&#39;)
+    pwm_and_cwm.list&lt;-list(pwm = pwm, cwm = cwm)
+    y_prefix&lt;-paste0(s.df$model_name %&gt;% gsub(&#39;_specific&#39;, &#39;&#39;, .) %&gt;% gsub(&#39;histone_&#39;, &#39;&#39;, .) %&gt;% gsub(&#39;_strongest_gene_across_internal_cell_type_&#39;, &#39;&#39;, .), &#39;_&#39;, s.df$metacluster, &#39;_&#39;, s.df$pattern)
+    names(pwm_and_cwm.list)&lt;-paste0(y_prefix, c(&#39;_pwm&#39;, &#39;_cwm&#39;))
+    
+    pwm_and_cwm.logo&lt;-ggseqlogo(pwm_and_cwm.list, method=&#39;custom&#39;, seq_type=&#39;dna&#39;) + 
+      facet_wrap(~seq_group, ncol = 1, scales=&#39;free&#39;) +
+      theme(axis.text.x = element_blank())+ ggtitle(paste0(s.df$fold, &#39;_&#39;, s.df$model))
+    return(pwm_and_cwm.logo)
+    
+  }, mc.cores = threads) %&gt;% wrap_plots(nrow = 1) + plot_annotation(title = x)
+
+  ggsave(paste0(figure_filepath, &#39;/seqlet_cwm_logo_&#39;, x, &#39;.png&#39;), seqlets.plot,
+         width = nrow(seqlets.df)*4+1, height = 4)
+  ggsave(paste0(figure_filepath, &#39;/seqlet_cwm_logo_&#39;, x, &#39;.pdf&#39;), seqlets.plot,
+         width = nrow(seqlets.df)*4+1, height = 4)
   return(NULL)
 })</code></pre>
 </div>

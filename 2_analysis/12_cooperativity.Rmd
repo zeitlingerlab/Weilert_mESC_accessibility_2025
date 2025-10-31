@@ -168,13 +168,12 @@ perturbs.df<-mclapply(models_of_interest, function(x){
                     A_effects = hA_sum - null_sum,
                     B_effects = hB_sum - null_sum)
   }) %>% rbindlist(.)
-}, mc.cores = 6) %>% rbindlist(.) %>%
-  dplyr::filter(motif_pair_distance<=400)
+}, mc.cores = 6) %>% rbindlist(.)
 ```
 
 Collect perturbations for Rosa for her to assess features alongside her kinetics models.
 
-```{r}
+```{r, eval = F}
 perturbs_processed.df<-lapply(names(bind_motif_to_task.list), function(y){
   task<-bind_motif_to_task.list[[y]]
   x<-'bpnet_osknz'
@@ -206,6 +205,11 @@ perturbs_processed.df<-lapply(names(bind_motif_to_task.list), function(y){
                 mult_acc_coop = log(hAB_acc_sum/null_acc_sum)/log((hA_acc_sum*hB_acc_sum)/(null_acc_sum*null_acc_sum)))
 
 readr::write_tsv(perturbs_processed.df, 'tsv/mapped_motifs/all_pairs_curated_0based_with_cooperativity.tsv.gz')
+```
+
+
+```{r}
+perturbs_processed.df<-readr::read_tsv('tsv/mapped_motifs/all_pairs_curated_0based_with_cooperativity.tsv.gz')
 ```
 
 ## Showcase uneven motif pair affinities
@@ -385,7 +389,149 @@ filler<-lapply(all_perturbs.df$motif_pair_ordered %>% unique, function(x){
 })
 ```
 
-## Summarize perturb. cooperativity (no distance)
+## Devise significance test
+
+So now we are in a tricky pickle. If we say cooperativity is when joint>marginal, then does this mean even 1% increase is cooperative? Standing on business, yes? But can we make a significance test to say "given a set of certain motif groups, are these more cooperative than the null expectation of no cooperativity?". Now, "null expectation of no cooperativity" is hard because we don't necessarily have replicates. 
+
+So we are going to declare to the world the following criteria:
+
+1. We see that our model ALWAYS loves to have more motifs (i.e. higher accessibility in the presence of motif sequences), thus the wilcox.test from Kim 2021 is overly promiscuous and untailing it to be a population treatment is technically statistically inaccurate. This raises a deeper question about whether statistics on model predictions (which are deterministic inherently) are even relevant. But we want a way of saying "given cooperativity compared to a situation where cooperativity should not exist, which cooperativity is statistically significant?"
+2. Thus, we decided that our null distribution is the cooperativity scores of motif pairs when they are DEFINITELY not arranged in a pioneering capacity (>300bp) compared to the cooperativity scores of motif pairs when they ARE possibly cooperatively arranged.
+3. Thus thus, our proposed statistical test is Wilcoxson rank rums of the cooperative scores (not comparing joint>marginal in paired capacity) that are at specific distance bins or motif pair groups, relative to how theyre cooperative in nonpioneering arrangements. 
+
+### By motif pair
+
+For individual motif pairs
+
+```{r}
+distance_feature<-400
+
+perturbs_classed.df<-perturbs.df %>% dplyr::filter(task=='atac', motif_pair_distance >=30)  %>%
+  dplyr::mutate(motif_pair_bin = ifelse(motif_pair_distance>=distance_feature, 'long', motif_pair_ordered)) %>%
+  dplyr::mutate(motif_pair_bin = factor(motif_pair_bin, c('long', motif_pair_ordered_order))) %>%
+  dplyr::arrange(motif_pair_bin) %>%
+  dplyr::filter(!is.na(log(add_coop)))
+
+paired.wilcox.test<-pairwise.wilcox.test(x = log(perturbs_classed.df$add_coop), g = perturbs_classed.df$motif_pair_bin, p.adjust.method = "bonf", alternative = 'greater')
+
+padj.df<-data.frame(padj_to_long = paired.wilcox.test$p.value[,'long'])
+padj.df$motif_pair_bin<-rownames(padj.df)
+
+wilcox_across_pair.df<-padj.df %>% arrange(padj_to_long) %>%
+  dplyr::mutate(sig = cut(padj_to_long, breaks = c(0, 1e-7, 1), labels = c('*', ''),
+                          include.lowest = T, right = T)) %>%
+  dplyr::select(-padj_to_long) %>%
+  dplyr::mutate(motif_pair_bin = factor(motif_pair_bin, motif_pair_ordered_order)) %>%
+  dplyr::arrange(desc(motif_pair_bin))
+wilcox_across_pair.df
+```
+
+Everything is significant, but this makes sense as we know this is distance dependent and that there are so many examples of motif pairs that even a slight increase is statistically significant. We are relatively unsurprised about this.
+
+### By distance bin
+
+```{r}
+distance_feature<-400
+
+wilcox_paired_by_bin.df<-mclapply(perturbs.df$motif_pair_ordered %>% unique, function(x){
+  
+  p.df<-perturbs.df %>% dplyr::filter(motif_pair_ordered==x, task=='atac', motif_pair_distance >=30)  %>%
+    dplyr::mutate(distance_bin = plyr::round_any(motif_pair_distance, 10, ceiling)) %>%
+    dplyr::mutate(distance_bin_all = ifelse(distance_bin>=distance_feature, 'long', distance_bin)) %>%
+    
+    #Because we are using `pairwise.wilcox.test` it is really important that we order this data frame in this EXACT way
+    #This allows us to apply the greater alternative hypothesis
+    dplyr::arrange(desc(distance_bin)) %>%
+    dplyr::mutate(distance_bin_all = factor(distance_bin_all, unique(distance_bin_all)))
+  p.df$distance_bin_all %>% table
+  
+  paired.wilcox.test<-pairwise.wilcox.test(x = log(p.df$add_coop), g = p.df$distance_bin_all, p.adjust.method = "bonf", alternative = 'greater')
+  padj.df<-data.frame(padj_to_long = paired.wilcox.test$p.value[,'long'])
+  padj.df$distance_bin_all<-rownames(padj.df)
+  padj.df$motif_pair_ordered<-x
+  rownames(padj.df)<-NULL
+  
+  return(padj.df)
+  
+}, mc.cores = 8) %>% rbindlist() %>% arrange(padj_to_long) %>%
+  dplyr::mutate(sig = cut(padj_to_long, breaks = c(0, 1e-7, 1), labels = c('*', ''),
+  # dplyr::mutate(sig = cut(padj_to_long, breaks = c(0, 0.001, 0.01, 0.05, 1), labels = c('***','**', '*', ''), 
+                          include.lowest = T, right = T)) %>%
+  dplyr::select(-padj_to_long) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, motif_pair_ordered_order),
+                distance_bin_all = as.integer(distance_bin_all)) %>%
+  dplyr::arrange(distance_bin_all, desc(motif_pair_ordered)) %>%
+  tidyr::pivot_wider(names_from = motif_pair_ordered, values_from = sig)
+
+print(wilcox_paired_by_bin.df %>% as.data.frame())
+# View(wilcox_paired_by_bin.df %>% as.data.frame())
+```
+
+Here, we see ranges of about 240bp providing significant cooperativity.
+
+## Summarize cooperativity 
+
+### Summarize cooperativity (with distance)
+
+How does cooperativity compare across all motif pairs?
+
+```{r}
+sig_marked.df<-wilcox_paired_by_bin.df %>% dplyr::rename(distance_bin = distance_bin_all) %>%
+  tidyr::pivot_longer(cols = -distance_bin, names_to = 'motif_pair_ordered', values_to = 'sig')
+
+summarize_all_distance.plot<-perturbs.df   %>%
+  dplyr::mutate(distance_bin = plyr::round_any(motif_pair_distance, 10, ceiling)) %>%
+  dplyr::group_by(task, motif_pair_ordered, distance_bin) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(.)+
+  # geom_tile()+
+  ggrastr::geom_tile_rast(aes(x = distance_bin, y = motif_pair_ordered, fill = log(coop)))+
+  geom_text(data = sig_marked.df, aes(x = distance_bin, y = motif_pair_ordered, label = sig), color = 'black')+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
+  facet_grid(task ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.png'), summarize_all_distance.plot, height = 20, width = 24)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.pdf'), summarize_all_distance.plot, height = 20, width = 24)
+```
+
+Selected motif pairs with distance.
+
+```{r}
+summarize_selected_distance.plot<-perturbs.df %>%
+  dplyr::group_by(task, motif_pair_ordered, motif_pair_distance) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   median_mult_coop = median(mult_coop),
+                   median_dir_coop = median(dir_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
+  as.data.frame %>%
+  dplyr::filter(task == 'atac', coop_type == 'median_add_coop') %>%
+  dplyr::filter(count>=count_threshold) %>%
+  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(coop)))+
+  # geom_tile()+
+  ggrastr::geom_tile_rast()+
+  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
+  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
+  facet_grid(task ~ coop_type)+
+  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.png'), summarize_selected_distance.plot, height = 6, width = 12)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.pdf'), summarize_selected_distance.plot, height = 6, width = 12)
+```
+
+### Summarize perturb. cooperativity (no distance)
 
 How does cooperativity compare across all motif pairs?
 
@@ -411,7 +557,6 @@ summarize_all_pairs.plot<-perturbs.df %>%
 ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_no_distance.png'), summarize_all_pairs.plot, height = 6, width = 12)
 ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_no_distance.pdf'), summarize_all_pairs.plot, height = 6, width = 12)
 
-
 summarize_selected_pairs.plot<-perturbs.df %>%
   dplyr::group_by(task, motif_pair_ordered) %>%
   dplyr::summarize(median_add_coop = median(add_coop),
@@ -435,7 +580,7 @@ ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_no_distanc
 ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_no_distance.pdf'), summarize_selected_pairs.plot, height = 6, width = 4)
 ```
 
-## Summarize cooperativity with low-affinity motif pairs (no distance)
+### Summarize cooperativity with low-affinity motif pairs (no distance)
 
 ```{r}
 summarize_selected_pairs.plot<-perturbs_processed.df %>%
@@ -456,59 +601,7 @@ ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaffinity_motifs_no_dist
 ggsave(paste0(figure_filepath, '/genomic_coop_summary_lowaffinity_motifs_no_distance.pdf'), summarize_selected_pairs.plot, height = 6, width = 4)
 ```
 
-## Summarize cooperativity (with distance)
-
-How does cooperativity compare across all motif pairs?
-
-```{r}
-summarize_all_distance.plot<-perturbs.df %>%
-  dplyr::group_by(task, motif_pair_ordered, motif_pair_distance) %>%
-  dplyr::summarize(median_add_coop = median(add_coop),
-                   median_mult_coop = median(mult_coop),
-                   median_dir_coop = median(dir_coop),
-                   count = dplyr::n()/2) %>%
-  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
-  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
-  as.data.frame %>%
-  dplyr::filter(count>=count_threshold) %>%
-  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(coop)))+
-  # geom_tile()+
-  ggrastr::geom_tile_rast()+
-  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
-  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
-  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
-  facet_grid(task ~ coop_type)+
-  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
-
-ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.png'), summarize_all_distance.plot, height = 20, width = 24)
-ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_with_distance.pdf'), summarize_all_distance.plot, height = 20, width = 24)
-
-
-summarize_selected_distance.plot<-perturbs.df %>%
-  dplyr::group_by(task, motif_pair_ordered, motif_pair_distance) %>%
-  dplyr::summarize(median_add_coop = median(add_coop),
-                   median_mult_coop = median(mult_coop),
-                   median_dir_coop = median(dir_coop),
-                   count = dplyr::n()/2) %>%
-  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
-  tidyr::pivot_longer(cols = c(median_add_coop, median_mult_coop, median_dir_coop), names_to = 'coop_type', values_to = 'coop') %>%
-  as.data.frame %>%
-  dplyr::filter(task == 'atac', coop_type == 'median_add_coop') %>%
-  dplyr::filter(count>=count_threshold) %>%
-  ggplot(., aes(x = motif_pair_distance, y = motif_pair_ordered, fill = log(coop)))+
-  # geom_tile()+
-  ggrastr::geom_tile_rast()+
-  scale_x_continuous(name = 'Distances', limits = c(0, 400)) + 
-  scale_y_discrete(name = 'Motif pair', expand = c(0,0)) +
-  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop. dist. (log)')+
-  facet_grid(task ~ coop_type)+
-  theme_classic()+  theme(panel.background = element_rect(fill = 'gray'))
-
-ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.png'), summarize_selected_distance.plot, height = 6, width = 12)
-ggsave(paste0(figure_filepath, '/genomic_coop_summary_selected_motifs_with_distance.pdf'), summarize_selected_distance.plot, height = 6, width = 12)
-```
-
-## Median cooperativity by motif pair
+### Median cooperativity by motif pair
 
 Plot the median cooperativity by motif pair
 
@@ -534,7 +627,7 @@ ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_medians.png'), 
 ggsave(paste0(figure_filepath, '/genomic_coop_summary_all_motifs_medians.pdf'), summarize_all.plot, height = 10, width = 8)
 ```
 
-## Summarize cooperativity with low-affinity motif pairs (with distance)
+### Summarize cooperativity with low-affinity motif pairs (with distance)
 
 ```{r}
 summarize_selected_distance.plot<-perturbs_processed.df %>%
