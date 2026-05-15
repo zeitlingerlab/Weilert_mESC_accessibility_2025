@@ -1025,6 +1025,7 @@ motif_contrib.df<-lapply(names(all_motifs.list), function(x){
 # Create metaplots of motif affinity
 
 ## Show high/med/low context/isolation scores
+
 ```{r}
 sampled_motif_n<-5000
 
@@ -1193,6 +1194,12 @@ plot.list<-lapply(c('binding_levels', 'seq_match_quantile'), function(ordering_v
         print(table(cwm.gr %>% arrange(!!sym(ordering_var)) %>% head(n=sampled_motif_n) %>% .$mapping_state))
 
         #Collect binding/metapeak information of top/med/bottom/PWM motifs 
+        if(length(cwm.gr)<10000){
+          bottom_n<-length(cwm.gr) - sampled_motif_n
+        } else{
+          bottom_n<-sampled_motif_n
+        }
+        
         bind.df<-rbind(
           pwm.gr %>% 
             arrange(desc(!!sym(ordering_var))) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
@@ -1205,7 +1212,7 @@ plot.list<-lapply(c('binding_levels', 'seq_match_quantile'), function(ordering_v
             tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
             exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
             dplyr::mutate(mapping = 'mid_cwm'),
-          cwm.gr %>% arrange(!!sym(ordering_var)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+          cwm.gr %>% arrange(!!sym(ordering_var)) %>% head(n=bottom_n) %>% resize(., 1, 'center') %>% 
             exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %>%
             dplyr::mutate(mapping = 'bottom_cwm')
         ) %>% 
@@ -1235,7 +1242,7 @@ plot.list<-lapply(c('binding_levels', 'seq_match_quantile'), function(ordering_v
               tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
               exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
               dplyr::mutate(mapping = 'mid_cwm'),
-            cwm.gr %>% arrange(!!sym(ordering_var)) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
+            cwm.gr %>% arrange(!!sym(ordering_var)) %>% head(n=bottom_n) %>% resize(., 1, 'center') %>% 
               exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %>%
               dplyr::mutate(mapping = 'bottom_cwm')
           ) %>% 
@@ -1265,7 +1272,7 @@ plot.list<-lapply(c('binding_levels', 'seq_match_quantile'), function(ordering_v
             tail(n=sampled_motif_n) %>% resize(., 1, 'center') %>% 
             standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
             dplyr::mutate(mapping = 'mid_cwm'),
-          cwm.gr %>% arrange(seq_match_quantile) %>% head(n=sampled_motif_n) %>% resize(., 1, 'center')  %>%
+          cwm.gr %>% arrange(seq_match_quantile) %>% head(n=bottom_n) %>% resize(., 1, 'center')  %>%
             standard_metapeak(gr = ., sample = 'bw/mesc_native_atac_cutsites_combined.bw', upstream = 1001, downstream = 1000) %>%
             dplyr::mutate(mapping = 'bottom_cwm')
         ) %>% 
@@ -1288,7 +1295,7 @@ plot.list<-lapply(c('binding_levels', 'seq_match_quantile'), function(ordering_v
                           head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %>% 
                           tail(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T),
                         bottom_cwm = cwm.gr %>% arrange(!!sym(ordering_var)) %>% 
-                          head(n=sampled_motif_n) %>% getSeq(bsgenome, ., as.character = T))
+                          head(n=bottom_n) %>% getSeq(bsgenome, ., as.character = T))
         logo.plot<-ggplot() + geom_logo(logo.list) + theme_logo() + 
           facet_wrap(~seq_group, ncol=1, scales='free_x')  + 
           ggtitle(y)

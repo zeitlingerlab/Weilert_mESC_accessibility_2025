@@ -1,0 +1,39 @@
+#!/usr/bin/bash
+#SBATCH --job-name bpnet_training
+#SBATCH --output=slurm_%j.log
+#SBATCH --array=1-3%3
+#SBATCH --mem=800gb
+#SBATCH --time=72:00:00
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=10
+source /home/mw2098/.bashrc
+conda deactivate
+conda activate bpreveal_510
+ml bedtools
+cd /n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/
+y
+if [[ ${SLURM_ARRAY_TASK_ID} == 1 ]] ; then
+
+    /home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/trainSoloModel.py json/trainSoloModel_bpnet_osknz_across_genome_fold1.json
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/makePredictionsBed.py json/predictPeaks_bpnet_osknz_across_genome_fold1.json
+
+fi
+
+
+if [[ ${SLURM_ARRAY_TASK_ID} == 2 ]] ; then
+
+    /home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/trainSoloModel.py json/trainSoloModel_bpnet_osknz_across_genome_fold2.json
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/makePredictionsBed.py json/predictPeaks_bpnet_osknz_across_genome_fold2.json
+
+fi
+
+
+if [[ ${SLURM_ARRAY_TASK_ID} == 3 ]] ; then
+
+    /home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/trainSoloModel.py json/trainSoloModel_bpnet_osknz_across_genome_fold3.json
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python /n/projects/mw2098/publications/2024_weilert_acc/public/software/bpreveal_404//src/makePredictionsBed.py json/predictPeaks_bpnet_osknz_across_genome_fold3.json
+
+fi
+
+

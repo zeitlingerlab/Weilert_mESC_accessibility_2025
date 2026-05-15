@@ -1,0 +1,980 @@
+---
+title: 'Neuronal differentiation analysis'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this analysis is to:
+
+1. Map day0 motifs (ESCs) from day12 motifs (neural progenitors)
+2. See whether there is a change from cooperative interactions of Sox2 with Oct4-Sox2 (loss of Oct4) to a different motif candidate that is specific to neural progenitors.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr); library(testit)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/20_bunina_analysis"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(ggseqlogo)
+library(DESeq2)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+threads <- 5
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.knownGene
+
+#model information
+peaks.path<-'bed/bpreveal/bunina_atac_day0_across_combined_fold1_all.bed'
+input_length<-2032
+output_length<-1000
+
+shap.bw.list<-list(`day0` = 'shap/bunina_atac_day0_across_combined_fold1_atac_counts.bw',
+                   `day4` = 'shap/bunina_atac_day4_across_combined_fold1_atac_counts.bw',
+                   `day8` = 'shap/bunina_atac_day8_across_combined_fold1_atac_counts.bw',
+                   `day12` = 'shap/bunina_atac_day12_across_combined_fold1_atac_counts.bw')
+```
+
+# Curate motifs
+
+From fold1 of day0 and day12, identify motifs that are commonly occuring.
+
+```{r}
+seqlet_ids.list<-list(
+  fold1 = list(
+    bunina_atac_day0 = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_3', 'pattern_4',
+                       'pattern_5','pattern_6', 'pattern_7', 'pattern_8', 'pattern_9',
+                       'pattern_10', 'pattern_11', 'pattern_12', 'pattern_13', 'pattern_14',
+                       'pattern_15'), 
+      motif = c('Sp1', 'Nfy', 'Klf4', 'Oct4-Sox2', 'Ctcf', 
+                'Sox2','Nrf1', 'Creb', 'Oct4-Sox2','Nrf1',
+                'Elk', 'Ctcf', 'Ctcf', 'Thap11', 'Tead',
+                'Zbtb33'),
+      oriented_strand = c('+', '-' , '+', '+', '-',
+                          '+', '+', '+', '+', '+',
+                          '-', '-', '-', '+', '+',
+                          '+'),
+      task = 'atac'),
+    
+    bunina_atac_day8 = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_3', 'pattern_4',
+                       'pattern_5','pattern_6', 'pattern_7', 'pattern_8', 'pattern_9',
+                       'pattern_10', 'pattern_11', 'pattern_12', 'pattern_13', 'pattern_14',
+                       'pattern_15', 'pattern_16'), 
+      motif = c('Sp1', 'Nfy', 'Nrf1', 'Crcf', 'Sox2', 
+                'Elk','Creb', 'Thap11', 'Rfx', 'Pbx2/Meis',
+                'Zbtb33', 'TGAGCTA', 'Elk-TGAGCTA', 'Elk-Elk', 'Rfx',
+                'Rfx', 'Rfx'),
+      oriented_strand = c('+', '+' , '+', '-', '+',
+                          '-', '+', '+', '+', '+',
+                          '+', '-', '-', '+', '+',
+                          '+', '+'),
+      task = 'atac'),
+    
+    bunina_atac_day12 = data.frame(
+      metacluster_name = 'pos_patterns', # Need this if you also have negative patterns
+      pattern_name = c('pattern_0', 'pattern_1', 'pattern_2', 'pattern_3', 'pattern_4',
+                       'pattern_5','pattern_6', 'pattern_7', 'pattern_8', 'pattern_9',
+                       'pattern_10', 'pattern_11', 'pattern_12'), 
+      motif = c('Sp1', 'Nfy', 'Nrf1', 'Creb', 'Elk', 
+                'Thap11', 'Rfx','Ctcf', 'Lhx', 'Cbx',
+                'Sox-like','Ctcf', 'Ctcf'),
+      oriented_strand = c('+', '-' , '+', '+', '-', 
+                          '+', '+', '+', '+', '+', 
+                          '+', '+', '+'),
+      task = 'atac')
+  )
+)
+
+seqlet_ids.df<-lapply(seqlet_ids.list, function(x){
+  x %>% rbindlist(idcol = 'model')
+}) %>% rbindlist(idcol = 'fold')
+readr::write_tsv(seqlet_ids.df, 'tsv/mapped_motifs/bunina_pattern_ids.tsv')
+```
+
+## Import hits
+
+Using fold1, import all hits from the key motifs of interest.
+
+```{r}
+hits.list<-lapply(names(seqlet_ids.list$fold1), function(model){
+  df<-lapply(Sys.glob(paste0('modiscolite/', model, '*_fold1_*counts/hits.tsv')),
+                     function(x) readr::read_tsv(x) %>%
+                       dplyr::mutate(model = model,
+                                     fold = 'fold1')) %>% 
+    rbindlist() %>% as.data.frame %>% 
+    dplyr::left_join(., seqlet_ids.df) %>%
+    dplyr::filter(!is.na(motif))
+  print(table(df$motif))
+  return(df)
+})
+names(hits.list)<-names(seqlet_ids.list$fold1)
+```
+
+## Curate motifs redundancy
+
+Remove the following redundancies:
+
++ Motifs that are peak-redundant will be mapped across peak "indexes" that are actually located across overlapping genomic regions. 
++ Motifs that are palindromic will be mapped on the positive and negative strand with almost identical ranges. 
+  + Here, we will remove redundantly mapped motifs and select the unique motif maps that have the highest contribution.
++ Motifs that have sub-components such as Sox2 mapped over an Oct4-Sox2 motif. We will assign Oct4-Sox2 motifs as the prior.
++ Motifs that have sub-components such as Nanog mapped over an Oct4-Sox2/Sox2 motif. We will assign Oct4-Sox2/Sox2 motifs as the prior.
+
+In order to simultaneously manage peak-redundancy and palindromic motifs, we will have to assign generalized "peak islands" intead of `peak_index` as our grouped region sets.
+
+```{r}
+hits_dedup.list<-lapply(names(hits.list), function(model){
+  #Orient strand to match desired aligned convention
+  gr<-makeGRangesFromDataFrame(hits.list[[model]], keep.extra.columns = T, starts.in.df.are.0based = T) %>%
+    plyranges::mutate(strand = ifelse(oriented_strand == '-', 
+                                      ifelse(strand == '-', '+', '-'),
+                                      strand))
+  
+  #Import peaks and reduce them to a deduplicated state to get general peak regions.
+  peaks.gr<-rtracklayer::import(peaks.path) %>% 
+    GenomicRanges::resize(., input_length, fix = 'center') %>% 
+    GenomicRanges::reduce(., ignore.strand = T) %>% 
+    plyranges::mutate(region_id_tmp = 1:length(.))
+  
+  #Find overlaps between motifs and peaks
+  ov<-findOverlaps(gr, peaks.gr, ignore.strand = T)
+  
+  #Assign temporary region ID for deduplication
+  gr$region_id_tmp<-NA
+  gr$region_id_tmp[ov@from]<-peaks.gr$region_id_tmp[ov@to]
+
+  #Filter any motif that doesn't fit into peaks. This means that the motif is mapped on the edges of the general, temporary region_id
+  gr<-gr %>% plyranges::filter(!is.na(gr$region_id_tmp))
+  
+  #Deduplicate any motifs for palindromic mappings
+  dedup.gr<-lapply(unique(gr$motif), function(y){
+    print(y)
+    motifs.gr<-gr %>% plyranges::filter(motif==y)
+    motifs_dedup.gr<-remove_palindromic_motifs_from_bpnet_instances(dfi = motifs.gr, 
+                                                                    pattern_to_filter = y, 
+                                                                    chrom_name = 'seqnames', start_name = 'start', end_name = 'end', 
+                                                                    value_name = 'contrib_match', motif_name = 'motif',
+                                                                    region_name = 'region_id_tmp')
+    print(paste0(length(motifs_dedup.gr) , ' kept from ', length(motifs.gr)))
+    return(motifs_dedup.gr)
+  }) %>% as('GRangesList') %>% unlist(.)
+
+  final_motifs.gr<-dedup.gr %>%
+    plyranges::select(-c(oriented_strand, fold))
+  
+  return(final_motifs.gr)
+})
+names(hits_dedup.list)<-names(hits.list)
+```
+
+## Double check motif overlaps
+
+Ensure that there isn't an overrepresentation of unexpected overlapping motif pairs. We expect some overlaps, but checking to make sure that our curations are consistent. 
+
+```{r}
+lapply(hits_dedup.list, function(gr){
+  reduced_motifs.gr<-gr %>% GenomicRanges::reduce(., ignore.strand = T, min.gapwidth = 0)
+  gr$motif_id_tmp<-findOverlaps(gr, reduced_motifs.gr, ignore.strand = T)@to
+  motifs_overlapped_ids<-table(gr$motif_id_tmp)[table(gr$motif_id_tmp)>1]
+  
+  gr %>%
+    as.data.frame %>%
+    dplyr::filter(motif_id_tmp %in% names(motifs_overlapped_ids)) %>%
+    dplyr::group_by(motif_id_tmp) %>%
+    dplyr::summarize(overlapping_motif_name = paste0(sort(motif), collapse = ':')) %>%
+    .$overlapping_motif_name %>%
+    table(.) %>% 
+    sort(decreasing = T) %>%
+    head(n=30)
+})
+```
+
+## Remove redundant motif instances
+
+```{r}
+hits_no_redundant.list<-lapply(names(hits_dedup.list), function(model){
+  gr<-hits_dedup.list[[model]]
+  no_redundant.gr<-remove_redundant_motifs_from_bpnet_instances(gr,chrom_name = 'seqnames', start_name = 'start', end_name = 'end',
+                                                                value_name = 'contrib_magnitude',
+                                                                region_name = 'region_id_tmp')
+  
+  return(no_redundant.gr)
+})
+names(hits_no_redundant.list)<-names(hits.list)
+```
+
+Compare changed numbers in motifs
+
+```{r}
+lapply(hits_dedup.list, function(x) x$motif %>% table)
+lapply(hits_no_redundant.list, function(x) x$motif %>% table)
+```
+
+We see a loss in the motifs we would expect to had they been redundant.
+
+## Calculate islands
+
+Because we took motifs based on their relative contribution and not the featured `peak_index` column, we need a new grouping annotation to define the motifs when we are conducting perturbations and other grouping systems. We will call this index `region_id`.
+
+```{r}
+motifs_w_annotations.gr.list<-lapply(names(hits_no_redundant.list), function(model){
+  message(model)
+  
+  gr<-hits_no_redundant.list[[model]]
+  
+  islands.gr<-resize(gr, 150, 'center') %>%
+    GenomicRanges::reduce(ignore.strand = T)
+  # rtracklayer::export(islands.gr, 'bed/mapped_motifs/islands_raw.bed')
+  
+  data.frame(x = width(islands.gr)) %>%
+    ggplot(., aes(x = x))+
+    geom_density()
+  
+  #Filter islands that are >1000 bp
+  islands.gr <- islands.gr %>% plyranges::filter(width <= input_length)  %>%
+    plyranges::mutate(region_id = 0:(length(.)-1)) #Make region_id 0-based in order to be compatible with BPNet contribution .h5 file indexing properties.
+  ov<-findOverlaps(gr, islands.gr, ignore.strand = T)
+  islands_resized_to_output.gr <- islands.gr %>% GenomicRanges::resize(., width = output_length, fix = 'center')
+  
+  #Nice! No regions get filtered out this time. This is great.
+  
+  #Export regions in 0-based coordinates
+  rtracklayer::export(islands.gr %>% 
+                        plyranges::mutate(name = region_id), 
+                      paste0('bed/mapped_motifs/all_', model, '_islands_curated_0based.bed'), format = 'BED')
+  rtracklayer::export(islands.gr %>% 
+                        GenomicRanges::resize(., width = output_length, fix = 'center') %>% 
+                        plyranges::mutate(name = region_id), 
+                      paste0('bed/mapped_motifs/all_', model, '_islands_curated_0based_sized_to_output.bed'), format = 'BED')
+  rtracklayer::export(islands.gr %>% 
+                        GenomicRanges::resize(., width = input_length, fix = 'center') %>% 
+                        plyranges::mutate(name = region_id), 
+                      paste0('bed/mapped_motifs/all_', model, '_islands_curated_0based_sized_to_input.bed'), format = 'BED')
+  
+  #Assign region_id to these motifs
+  gr_w_regions.gr<-gr
+  gr_w_regions.gr$region_id<-NA
+  gr_w_regions.gr$region_id[ov@from]<-islands_resized_to_output.gr$region_id[ov@to]
+  gr_w_regions.gr$region_start_1based<-NA
+  gr_w_regions.gr$region_start_1based[ov@from]<-start(islands_resized_to_output.gr)[ov@to]
+  gr_w_regions.gr$region_end_1based<-NA
+  gr_w_regions.gr$region_end_1based[ov@from]<-end(islands_resized_to_output.gr)[ov@to]
+  
+  #Filter motifs that aren't in a sufficiently small island.
+  gr_w_ic.gr <- gr_w_regions.gr %>% plyranges::filter(!is.na(region_id)) %>%
+    plyranges::mutate(motif_id = 0:(length(.)-1), #0-based indexing later might come in handy
+                      seq = getSeq(bsgenome, ., as.character = T))
+  
+  #1-based
+  gr_w_ic.df<-gr_w_ic.gr %>% as.data.frame()
+  readr::write_tsv(gr_w_ic.df, paste0('tsv/mapped_motifs/all_', model, '_instances_curated_1based.tsv.gz'))
+  
+  #0-based
+  rtracklayer::export(gr_w_ic.gr %>% plyranges::mutate(name = paste0(motif, '_', motif_id, '_', region_id)), 
+                      paste0('bed/mapped_motifs/all_', model, '_instances_curated_0based.bed'))
+  return(gr_w_ic.gr)
+  
+})
+names(motifs_w_annotations.gr.list)<-names(hits.list)
+```
+
+# Plot SHAP scores of different concentrations across mapped motifs
+
+```{r}
+motifs_of_interest.gr<-c(
+  motifs_w_annotations.gr.list$bunina_atac_day0 %>% plyranges::filter(motif=='Oct4-Sox2', pattern_name== 'pattern_3'),
+  motifs_w_annotations.gr.list$bunina_atac_day0 %>% plyranges::filter(motif=='Ctcf', pattern_name== 'pattern_4'),
+  motifs_w_annotations.gr.list$bunina_atac_day12 %>% plyranges::filter(motif=='Rfx')
+)
+
+
+cwms.plot.list<-lapply(motifs_of_interest.gr$motif %>% unique, function(x){
+  message(x)
+  logos.plot.list<-mclapply(names(shap.bw.list), function(y){
+    message(y)
+      gr<-motifs_of_interest.gr %>% plyranges::filter(motif==x)
+      seqs<-gr %>% getSeq(bsgenome, ., as.character = T)
+      contrib.mat<-standard_metapeak_matrix(regions.gr = gr,
+                                            sample.cov = shap.bw.list[[y]],
+                                            keep_region_coordinates = T)
+      seqs_1he.list<-lapply(seqs, function(z) one_hot_encode_DNA(z))
+      contribs.list<-lapply(1:dim(contrib.mat)[1], function(z){
+        seqs_1he.list[[z]] * matrix(rep(contrib.mat[z,], 4), nrow = 4, byrow = T)
+      })
+      cwm<-Reduce("+", contribs.list) / length(contribs.list)
+      
+      cwm.plot<-ggseqlogo(cwm, method = 'custom', seq_type='dna')+
+        scale_x_continuous(name = 'Motif position (bp)')+
+        scale_y_continuous(name = 'Contrib', limits = c(-.005, .04))+
+        ggtitle(paste0(x, '_', y)) + 
+        theme(axis.line.y = element_line(), axis.ticks.y = element_line(),
+              axis.title = element_blank(), axis.text.x = element_blank())
+    return(cwm.plot)
+  }, mc.cores = 2)
+  
+  logos.plot<-wrap_plots(logos.plot.list) + plot_layout(ncol = 1)
+  ggsave(paste0(figure_filepath, '/cwm_across_mapped_', x, '.png'), logos.plot, height = 9, width = 3)
+  ggsave(paste0(figure_filepath, '/cwm_across_mapped_', x, '.pdf'), logos.plot, height = 9, width = 3)
+  
+  return(logos.plot)
+}) 
+
+all_logos.plot<-wrap_plots(cwms.plot.list) + plot_layout(nrow = 1)
+all_logos.plot
+ggsave(paste0(figure_filepath, '/cwm_across_mapped_all.png'), all_logos.plot, height = 11, width = 12)
+ggsave(paste0(figure_filepath, '/cwm_across_mapped_all.pdf'), all_logos.plot, height = 11, width = 12)
+```
+
+# Find candidates of Sox2 cooperativity
+
+```{r}
+#Find regions that have Rfx and Oct4-Sox2 nearby
+subsetByOverlaps(motifs_w_annotations.gr.list$bunina_atac_day0 %>% plyranges::filter(motif %in% c('Oct4-Sox2')),
+                 motifs_w_annotations.gr.list$bunina_atac_day8 %>% plyranges::filter(motif=='Sox2')) %>%
+  GenomicRanges::resize(., 400, 'center') %>%
+  subsetByOverlaps(.,
+                   motifs_w_annotations.gr.list$bunina_atac_day8 %>% plyranges::filter(motif=='Pbx2/Meis')) %>%
+  plyranges::arrange(desc(contrib_magnitude)) %>% as.data.frame
+
+
+#chr11:71,996,116-71,996,273 #immediate cooperativity thats super nice bw sox2 and rfx
+#chr13:84,059,688-84,059,837 great candidate showing perfect cooperativity handover
+#chr2:117,938,915-117,939,042 secondary candidate 
+#chr10:99,538,846-99,538,942 good secondary candidate
+```
+
+# GM17750 intronic enhancer showcase
+
+## Showcase the contribution tracks
+
+```{r}
+curated_enhancer_boundaries.gr<- GRanges('chr13', IRanges(84059730,84059820))
+```
+
+Generate contribution scores of mapped motifs.
+
+```{r}
+acc_contrib.plot<-lapply(c(0, 8), function(x){
+  
+  curated_enhancer.df<-data.frame(
+    acc_contrib = standard_metapeak_matrix(regions.gr =curated_enhancer_boundaries.gr, sample.cov = paste0('shap/bunina_atac_day', x, '_across_combined_fold1_atac_counts.bw'), 
+                                           keep_region_coordinates = T) %>% t(),
+    seq = getSeq(bsgenome, curated_enhancer_boundaries.gr, as.character = T) %>% stringr::str_split_1(pattern = ''),
+    position = start(curated_enhancer_boundaries.gr):end(curated_enhancer_boundaries.gr)
+  )
+  
+  # Generate sequence logo
+  acc_contrib.plot<-curated_enhancer.df%>%
+    tidyr::pivot_wider(names_from = seq, values_from = acc_contrib) %>% 
+    dplyr::select(A, C, G, T) %>% as.matrix() %>% t() %>%
+    ggseqlogo(., method='custom', seq_type='dna') + 
+    scale_y_continuous(name = 'Acc. contrib.')+
+    scale_x_discrete(name = 'Genomic position (chr13, bp)')+
+    ggtitle(paste0('day ', x))
+}) %>% wrap_plots(ncol = 1)
+
+acc_contrib.plot
+ggsave(paste0(figure_filepath, '/GM17750_contrib.png'), acc_contrib.plot, height = 3, width = 10)
+ggsave(paste0(figure_filepath, '/GM17750_contrib.pdf'), acc_contrib.plot, height = 3, width = 10)
+```
+
+## Showcase cooperativity between timepoints
+
+Arrange motifs
+
+```{r}
+candidate_island.df<-curated_enhancer_boundaries.gr %>% plyranges::mutate(region_id = 0, comb_max = 2, comb_min = 1) %>% GenomicRanges::resize(., width = 2033, 'center') %>% as.data.frame()%>%
+  dplyr::rename(chrom = seqnames) 
+candidate_motifs.df<-c(subsetByOverlaps(motifs_w_annotations.gr.list$bunina_atac_day0, curated_enhancer_boundaries.gr, ignore.strand = T),
+  subsetByOverlaps(motifs_w_annotations.gr.list$bunina_atac_day8, curated_enhancer_boundaries.gr, ignore.strand = T)) %>%
+  as.data.frame() %>%
+  plyranges::mutate(region_id = 0, 
+                    start = start, 
+                    end = end+1,
+                    motif_window_start = start - candidate_island.df$start,
+                    motif_window_end = end - candidate_island.df$start)  %>%
+  dplyr::rename(chrom = seqnames) #all motifs are on negative strand
+readr::write_tsv(candidate_motifs.df, 
+                 'tsv/genomic/motifs/bunina_showcase_instances_formatted_for_genomic_perturbations_0based.tsv.gz')
+readr::write_tsv(candidate_island.df,
+                 'tsv/genomic/motifs/bunina_showcase_islands_formatted_for_genomic_perturbations_0based.tsv.gz')
+```
+
+Calculate cooperativity
+
+```{bash, eval = F}
+source /home/mw2098/.bashrc
+conda deactivate
+conda activate bpreveal_404
+cd /n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis
+
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python scripts/py/tools/generate_genomic_perturbs.py \
+--motifs_df_path tsv/genomic/motifs/bunina_showcase_instances_formatted_for_genomic_perturbations_0based.tsv.gz \
+--motif_groups_df_path tsv/genomic/motifs/bunina_showcase_islands_formatted_for_genomic_perturbations_0based.tsv.gz \
+--model_dir models/bunina_atac_day0_across_combined_fold1_combined.model / \
+--output_prefix tsv/genomic/motifs/bunina_showcase_instances_day0 \
+--tasks_in_model_order atac \
+--region_index_column region_id \
+--motif_window_start_column motif_window_start \
+--motif_window_end_column motif_window_end \
+--motif_name_column motif \
+--motif_chrom_column chrom \
+--fasta_file ../0_setup/fa/mm10.fa \
+--input_seqlen 2032 --output_seqlen 1000 \
+--comb_max comb_max --comb_min comb_min \
+--nodes 1 --trials 16 \
+--use_whole_window 
+
+/home/mw2098/anaconda3/envs/bpreveal_404/bin/python scripts/py/tools/generate_genomic_perturbs.py \
+--motifs_df_path tsv/genomic/motifs/bunina_showcase_instances_formatted_for_genomic_perturbations_0based.tsv.gz \
+--motif_groups_df_path tsv/genomic/motifs/bunina_showcase_islands_formatted_for_genomic_perturbations_0based.tsv.gz \
+--model_dir models/bunina_atac_day8_across_combined_fold1_combined.model / \
+--output_prefix tsv/genomic/motifs/bunina_showcase_instances_day8 \
+--tasks_in_model_order atac \
+--region_index_column region_id \
+--motif_window_start_column motif_window_start \
+--motif_window_end_column motif_window_end \
+--motif_name_column motif \
+--motif_chrom_column chrom \
+--fasta_file ../0_setup/fa/mm10.fa \
+--input_seqlen 2032 --output_seqlen 1000 \
+--comb_max comb_max --comb_min comb_min \
+--nodes 4 --trials 16 \
+--use_whole_window 
+```
+
+Quantify and print cooperativity
+
+```{r}
+perturb.df<-readr::read_tsv('tsv/genomic/motifs/bunina_showcase_instances_day8_chr13.tsv.gz')
+
+data.frame(AB = perturb.df %>% dplyr::filter(mut=='Reference') %>% .$`atac/pred_sum`,
+           A = perturb.df %>% dplyr::filter(mut=='Sox2-1') %>% .$`atac/pred_sum`,
+           B = perturb.df %>% dplyr::filter(mut=='Pbx2/Meis-1') %>% .$`atac/pred_sum`,
+           null = perturb.df %>% dplyr::filter(mut=='Pbx2/Meis-1_Sox2-1') %>% .$`atac/pred_sum`) %>%
+  dplyr::mutate(coop = (AB-null)/(A + B - 2*null),
+                log_coop = log(coop))
+
+```
+
+# Run DESeq2
+
+Across this differentiation time course, run DESeq on accessibility and RNA-seq levels.
+
+## Define reference regions
+
+Import regions that you are doing to calculate differential enrichment across. For this, we will take a union set of the different timepoints and resize them to a systematic level.
+
+```{r}
+regions.gr<-Sys.glob(paste0('bed/mapped_motifs/all_bunina_*_islands_curated_0based.bed')) %>% lapply(., function(x) rtracklayer::import(x)) %>%
+  as('GRangesList') %>%
+  unlist() %>%
+  GenomicRanges::reduce(ignore.strand = T) %>%
+  GenomicRanges::resize(., input_length, 'center') 
+```
+
+## Collect DESeq2 normalized accessibility across regions
+
+```{r}
+#Collect data
+atac.bw.vec<-Sys.glob('../1_processing/bw/Bunina_mesc_atac_day*_*_cutsites.bw')
+atac.df<-mclapply(atac.bw.vec, function(x){
+  regionSums(regions.gr, 
+             x)
+}, mc.cores = 2) %>% as.data.frame()
+
+#Format organization
+atac_labels.df<-data.frame(filename = atac.bw.vec) %>%
+  dplyr::mutate(state = basename(filename) %>% gsub('Bunina_mesc_atac_', '', .) %>% gsub('_cutsites.bw', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+
+#Assign names to counts table
+names(atac.df)<-atac_labels.df$state
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = atac.df,
+                              colData = atac_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_atac.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_atac.df)<-paste0('log2fc_atac_day', seq(4, 12, 4), 'h_vs_day0')
+head(log2FoldChange_atac.df)
+
+#Return whether the region is significantly up- or down-regulated
+padj_atac.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$padj
+}) %>% as.data.frame()
+colnames(padj_atac.df)<-paste0('padj_atac_day', seq(4, 12, 4), 'h_vs_day0')
+head(padj_atac.df)
+
+regions_w_deseq.df<-cbind(regions.gr %>% as.data.frame, log2FoldChange_atac.df, padj_atac.df)
+```
+
+## Collect DESeq2 normalized transcription across enhancers
+
+```{r}
+#Collect data
+erna.bw.vec<-Sys.glob('../1_processing/bw/Bunina_mesc_rna_day*_*.bw')
+erna.df<-mclapply(erna.bw.vec, function(x){
+  regionSums(regions.gr,
+             x)
+}, mc.cores = 2) %>% as.data.frame()
+
+#Format organization
+erna_labels.df<-data.frame(filename = erna.bw.vec) %>%
+  dplyr::mutate(state = basename(filename) %>% gsub('Bunina_mesc_rna_', '', .) %>% gsub('.bw', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+names(erna.df)<-erna_labels.df$state
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = erna.df,
+                              colData = erna_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_erna.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_erna.df)<-paste0('log2fc_rna_day', seq(4, 12, 4), 'h_vs_day0')
+
+#Return whether the region is significantly up- or down-regulated
+padj_erna.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$padj
+}) %>% as.data.frame()
+colnames(padj_erna.df)<-paste0('padj_rna_day', seq(4, 12, 4), 'h_vs_day0')
+head(padj_erna.df)
+
+regions_w_deseq_both.df<-cbind(regions_w_deseq.df %>% as.data.frame, log2FoldChange_erna.df, padj_erna.df)
+head(regions_w_deseq_both.df)
+readr::write_tsv(regions_w_deseq_both.df, 'tsv/mapped_motifs/all_bunina_islands_curated_1based_w_deseq2_data.tsv.gz')
+```
+
+## Collect DESeq2 normalized transcription across genes
+
+Given published TT-seq data from Bunina et al, assess pairwise differential expression across annotated regions. This will be a differentiation time course. 
+
+```{r}
+#Collect data
+rnaseq.counts.path<-Sys.glob('../1_processing/bam/Bunina_mesc_rna_day*ReadsPerGene.out.tab')
+rnaseq_conditions.vec<-rnaseq.counts.path %>% basename %>% gsub('Bunina_mesc_rna_', '', .) %>% gsub('ReadsPerGene.out.tab', '', .)
+rnaseq_annotations.gr<-rtracklayer::import('../../public/databases/Ens/mm10.Ens_98.gtf')
+
+#Import counts tables
+rnaseq_names.vec<-readr::read_tsv(rnaseq.counts.path[1], F) %>% .[[1]]
+rnaseq.df<-mclapply(rnaseq.counts.path, function(x){
+  df<-readr::read_tsv(x, F)
+  colnames(df)<-c('gene_name','reads','fwd','rev')
+  df$reads
+}, mc.cores = 2) %>% as.data.frame()
+colnames(rnaseq.df)<-rnaseq_conditions.vec
+rnaseq.df$gene_id<-rnaseq_names.vec
+rnaseq.df<-rnaseq.df %>% dplyr::filter(!grepl('N_', gene_id))
+
+#Filter out genes that have no reads across them
+genes_to_keep.vec<-rnaseq.df %>% tidyr::pivot_longer(cols = rnaseq_conditions.vec, names_to = 'condition', values_to = 'counts') %>%
+  dplyr::group_by(gene_id) %>% dplyr::summarize(total_counts = sum(counts)) %>%
+  dplyr::filter(total_counts>0) %>%
+  .$gene_id %>% unique()
+
+rnaseq.df<-rnaseq.df %>% dplyr::filter(gene_id %in% genes_to_keep.vec)
+  
+#Attach annotations
+rnaseq_w_ann.df<-rnaseq.df %>%
+  dplyr::left_join(., rnaseq_annotations.gr %>% as.data.frame %>% dplyr::select(gene_id, gene_name, gene_source)) %>%
+  unique()
+testit::assert(nrow(rnaseq_w_ann.df)==nrow(rnaseq.df))
+
+#Format organization
+rnaseq_labels.df<-data.frame(filename = rnaseq.counts.path) %>%
+  dplyr::mutate(state = basename(filename) %>% basename %>% gsub('Bunina_mesc_rna_', '', .) %>% gsub('ReadsPerGene.out.tab', '', .)) %>%
+  tidyr::separate(state, into = c('timepoint','replicate'), remove = F)
+
+#Run DESeq2
+dds <- DESeqDataSetFromMatrix(countData = rnaseq.df %>% dplyr::select(-gene_id),
+                              colData = rnaseq_labels.df,
+                              design = ~ timepoint)
+dds <- DESeq(dds)
+
+#Return enrichment results
+log2FoldChange_rnaseq.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$log2FoldChange
+}) %>% as.data.frame()
+colnames(log2FoldChange_rnaseq.df)<-paste0('log2fc_rna_gene_day', seq(4, 12, 4), 'h_vs_day0')
+
+#Return significance results
+signif_rnaseq.df<-lapply(paste0('day', seq(4, 12, 4)), function(x){
+  res <- results(dds, contrast=c("timepoint",x, "day0"))
+  res$padj
+}) %>% as.data.frame()
+colnames(signif_rnaseq.df)<-paste0('padj_rna_gene_day', seq(4, 12, 4), 'h_vs_day0')
+```
+
+Connect differential RNA-seq values with annotations. Then connect gene locations with the nearest motif groups.
+
+```{r}
+rnaseq_w_deseq.df<-cbind(rnaseq_w_ann.df, log2FoldChange_rnaseq.df) %>%
+  dplyr::left_join(., rnaseq_annotations.gr %>% as.data.frame %>% dplyr::filter(type=='gene') %>% dplyr::select(gene_id, gene_name, gene_source, seqnames, start, end, strand))
+readr::write_tsv(rnaseq_w_deseq.df, 'tsv/mapped_motifs/all_bunina_genes_curated_1based_w_deseq2_data.tsv.gz')
+
+#Collect significance
+rnaseq_w_signif.df<-cbind(rnaseq_w_ann.df, signif_rnaseq.df, log2FoldChange_rnaseq.df) %>%
+  dplyr::left_join(., rnaseq_annotations.gr %>% as.data.frame %>% dplyr::filter(type=='gene') %>% dplyr::select(gene_id, gene_name, gene_source, seqnames, start, end, strand))
+```
+
+## Read in differential data
+
+```{r}
+rnaseq_w_deseq.df<-readr::read_tsv('tsv/mapped_motifs/all_bunina_genes_curated_1based_w_deseq2_data.tsv.gz')
+regions_w_deseq_both.df<-readr::read_tsv('tsv/mapped_motifs/all_bunina_islands_curated_1based_w_deseq2_data.tsv.gz')
+```
+
+# Observed mESC-specific fold-change over time 
+
+Given OS motifs derived from mESCs as an anchor, how does gene expression change with the same arrangements of grouped/isolated? 
+
+```{r}
+motifs_at_day0.gr<-motifs_w_annotations.gr.list$bunina_atac_day0 %>% 
+  # plyranges::filter(motif %in% c('Klf4', 'Sox2', 'Oct4-Sox2')) %>%
+  as.data.frame %>%
+  dplyr::group_by(motif) %>%
+  dplyr::mutate(seq_match_quantile = ecdf(seq_match)(seq_match),
+                seq_match_quantile_bin = cut(seq_match_quantile, breaks = c(0, .33, .67, 1), include.lowest = T, labels = paste0('smq_', 1:3)),
+                region_id = as.integer(region_id)) %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::mutate(island_count = dplyr::n(), 
+                island_content = paste(unique(sort(motif)), table(sort(motif)), sep = ':', collapse = '_'),
+                island_content_ordered = paste(motif, collapse = '_'),
+                island_content_unique = paste(unique(sort(motif)), collapse = '_')) %>%
+  dplyr::ungroup() %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, 
+                           seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', 
+                           strand.field = 'strand')
+
+subsetByOverlaps(motifs_at_day0.gr %>% plyranges::filter(motif=='Sox2'), motifs_at_day0.gr %>% plyranges::filter(motif=='Oct4-Sox2'), ignore.strand = T)
+```
+
+Filter motifs based on the rationale that the enhancers wont be re-engineered to be neural progenitors. So we will take regions that don't have neuronal motifs emerge.
+
+```{r}
+# specific_neuronal_motifs.gr<-motifs_w_annotations.gr.list$bunina_atac_day12 %>% plyranges::filter(motif %in% c('Cbx', 'Lhx', 'Rfx'))
+# 
+# #Attach region_id
+regions_at_day0.gr<-rtracklayer::import('bed/mapped_motifs/all_bunina_atac_day0_islands_curated_0based_sized_to_input.bed')
+# regions_at_day0.gr<-regions_at_day0.gr %>%
+#   plyranges::filter(!overlapsAny(., specific_neuronal_motifs.gr, ignore.strand = T))
+```
+
+About half the regions are lost.
+
+
+Assign region information.
+
+```{r}
+regions_w_deseq_both.gr<-regions_w_deseq_both.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+
+ov<-findOverlaps(regions_w_deseq_both.gr, regions_at_day0.gr, ignore.strand = T)
+regions_w_deseq_both.gr$region_id<-NA
+regions_w_deseq_both.gr$region_id[ov@from]<-regions_at_day0.gr$name[ov@to]
+
+regions_w_deseq_both.df<-regions_w_deseq_both.gr %>% 
+  plyranges::mutate(atac_obs = regionSums(., 'bw/Bunina_mesc_atac_day0_1_cutsites.bw'),
+                    atac_obs_q = ecdf(atac_obs)(atac_obs),
+                    atac_obs_q_bin = plyr::round_any(atac_obs_q, accuracy = .2, f = ceiling)) %>%
+  as.data.frame %>% dplyr::filter(!is.na(region_id)) %>% dplyr::mutate(region_id = as.integer(region_id)) %>%
+  dplyr::left_join(motifs_at_day0.gr %>% as.data.frame %>% dplyr::select(region_id, island_count, island_content, island_content_ordered, island_content_unique) %>% unique())
+```
+
+## Differential plots
+
+### Observed accessibility data
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2', 'Ctcf'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_at_day0.gr %>% 
+    as.data.frame %>% 
+    dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_magnitude) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  #Measure effects of accessibility levels from DESeq2
+  atac_comparisons<-colnames(log2FoldChange_atac.df)
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id)) %>%
+    dplyr::filter(!is.na(log2fc_atac_day4h_vs_day0)) %>%
+    dplyr::select(atac_comparisons, row) %>%
+    tidyr::pivot_longer(cols = atac_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_comparisons)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  motifs_w_grouped.df<-motif.df %>% dplyr::select(motif, region_id, row, seq_match_quantile_bin, seq_match_quantile) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id, atac_obs_q_bin, atac_obs_q, atac_obs)) %>%
+    dplyr::left_join(grouped.df %>% dplyr::select(row, island_state) %>% unique()) %>% 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    dplyr::filter(!is.na(island_state))
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+  message(x, ': ', nrow(motif.df))
+  print(table(motifs_w_grouped.df$island_state, motifs_w_grouped.df$seq_match_quantile_bin))
+
+  #Plot distributions of isolated or grouped
+  abs_distributions.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = log(atac_obs), fill = island_state))+
+    geom_density(alpha = .5)+
+    scale_x_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_y_continuous(name = 'Density')+
+    scale_fill_manual(values = c('#b2182b', '#2166ac'))+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  abs_distributions.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.png'), abs_distributions.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.pdf'), abs_distributions.plot, height = 4, width = 6)
+  # print(wilcox.test(motifs_w_grouped.df %>% dplyr::filter(island_state=='isolated') %>% .$atac_obs %>% log, grouped.df %>% dplyr::filter(island_state=='grouped') %>% .$atac_obs %>% log))
+  
+  #Plot absolute accessibility over categories
+  my_comparisons<-list(c('smq_1','smq_3'))
+  all_abs_acc.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = log(atac_obs)))+
+    geom_boxplot(outliers = F)+
+    ggpubr::stat_compare_means(comparisons = my_comparisons, method = 'wilcox.test')+
+    scale_y_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_x_discrete(name = 'Motif PWM group')+
+    facet_grid(. ~ island_state)+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  all_abs_acc.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.png'), all_abs_acc.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.pdf'), all_abs_acc.plot, height = 4, width = 6)
+
+  #Plot  affinities over categories
+  all_affinities.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    
+    #Remove all poor accessibility regions because we want to consider only open features. 
+    #This cutoff was determined from absolute observed accessibility effects in later plots. See similar results despite changing cutoffs. 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = seq_match_quantile, fill = island_state))+
+    geom_boxplot()+
+    ggpubr::stat_compare_means(method = 'wilcox.test')+
+    scale_y_continuous(name = 'PWM scores')+
+    scale_x_discrete(name = 'Motif PWM group')+
+    ggtitle('Affinities')+
+    theme_classic()
+  all_affinities.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.png'), all_affinities.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.pdf'), all_affinities.plot, height = 4, width = 6)
+
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-2.5, .5))+
+    theme_classic()
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-2.5, .5))+
+    theme_classic()
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.png'), metaplot, height = 5, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.pdf'), metaplot, height = 5, width = 10)
+
+  return(NULL)
+})
+```
+
+## Differential expression
+
+### Observed differential gene expression
+
+```{r}
+#For all motifs, calculate the nearest gene occurrences
+#When we subset, we will still take the only Oct4-Sox2 regulated regions that are nearby a gene ONE TIME within 100Kbp
+motifs_via_occ.gr<-motifs_at_day0.gr %>% as.data.frame %>% dplyr::filter(motif %in% c('Oct4-Sox2', 'Sox2')) %>%
+  dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(region_id, island_content, island_count)) %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+rnaseq_w_deseq.gr<-rnaseq_w_deseq.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+
+motifs_via_occ.gr$gene_name<-rnaseq_w_deseq.gr$gene_name[nearest(motifs_via_occ.gr, rnaseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_start<-rnaseq_w_deseq.df$start[nearest(motifs_via_occ.gr, rnaseq_w_deseq.gr, ignore.strand = T)]
+motifs_via_occ.gr$nearest_gene_distance<-abs(motifs_via_occ.gr$nearest_gene_start - start(motifs_via_occ.gr))
+
+motifs_via_occ.gr<-motifs_via_occ.gr %>% plyranges::filter(nearest_gene_distance<=100000)
+gene_occurrence.df<-motifs_via_occ.gr %>% as.data.frame %>% 
+  dplyr::select(region_id, gene_name) %>% unique %>% 
+  dplyr::group_by(gene_name) %>% dplyr::summarize(gene_occurrence = dplyr::n())
+
+rnaseq_comparisons<-paste0('log2fc_rna_gene_day', seq(4, 12, 4), 'h_vs_day0')
+```
+
+Plot magnitude of depletion of nearest target gene.
+
+```{r}
+nearest_gene_count_threshold<-20
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
+  
+  motif.gr<-motifs_via_occ.gr %>% dplyr::filter(motif==x) %>%
+    makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+  
+
+  nearest_thresholds<-c(5000, 50000, 100000)
+  #Now, replot but with boundaries rather than simple minimums
+  plot.list<-lapply(nearest_thresholds, function(thresh){
+    message(thresh)
+    lower_bound<-max(nearest_thresholds[nearest_thresholds<thresh])
+    if(is.infinite(lower_bound)){lower_bound<-0}
+
+    motif_near.gr<-motif.gr %>% plyranges::filter(nearest_gene_distance<=thresh,
+                                                  nearest_gene_distance>=lower_bound)
+
+    genes_to_consider.df<-rnaseq_w_deseq.gr %>% as.data.frame %>%
+      dplyr::left_join(., gene_occurrence.df) %>%
+      dplyr::mutate(gene_occurrence = ifelse(is.na(gene_occurrence), 0, gene_occurrence),
+                    rnaseq_at_gene_0h = `day0_1` + `day0_2`) %>%
+      dplyr::filter(gene_occurrence==1) %>%
+      dplyr::left_join(motif_near.gr %>% as.data.frame %>% dplyr::select(gene_name, region_id, island_count, island_content) %>% unique,
+                       ., by = 'gene_name') %>%
+      dplyr::filter(!is.na(gene_occurrence)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped'))
+
+    #Collect islands belonging to each motif
+    if(x=='Oct4-Sox2'){
+      grouped.df<-genes_to_consider.df %>% dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+    } else{
+      grouped.df<-genes_to_consider.df %>% dplyr::filter(!grepl('Oct4-Sox2', island_content))
+    }
+    readr::write_tsv(grouped.df, paste0('tsv/mapped_motifs/nearest_genes_bunina_curated_1based_wrt_', x, '_thresh_', as.integer(thresh), '.tsv.gz'))
+
+    #Print numbers
+    print(grouped.df %>% dplyr::select(region_id, island_state) %>% unique %>% 
+            dplyr::group_by(island_state) %>% dplyr::summarize(counts = dplyr::n()))
+
+    grouped.df<-grouped.df %>% tidyr::pivot_longer(cols = rnaseq_comparisons,
+                                                   names_to = 'timepoint', values_to = 'deseq') %>%
+      dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(rnaseq_comparisons), labels = c(rnaseq_comparisons %>% gsub('deseq', '', .))))
+    
+
+    #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+    group.plot<-grouped.df %>%
+      dplyr::group_by(island_state, timepoint) %>%
+      dplyr::summarize(med_deseq = median(deseq, na.rm = T),
+                       freq = dplyr::n()) %>%
+      dplyr::filter(freq>=nearest_gene_count_threshold) %>%
+      ggplot(., aes(x = timepoint, y = med_deseq, color = island_state, group = interaction(island_state))) +
+      geom_hline(yintercept = 0, linetype = 'dashed')+
+      geom_point()+
+      geom_line()+
+      # facet_grid(gene_freq ~ .)+
+      scale_x_discrete(name = 'Timepoint')+
+      scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.5, .5))+
+      ggtitle(paste0('Gene distance threshold: ', lower_bound, ' <=', thresh))+
+      theme_classic()
+
+    return(group.plot)
+  })
+
+  grouped_deseq.plot<-wrap_plots(plot.list, ncol = 1)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_rnaseq_between_', x, '.png'), grouped_deseq.plot, height = 15, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_rnaseq_between_', x, '.pdf'), grouped_deseq.plot, height = 15, width = 10)
+})
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+

@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-09-17" />
+<meta name="date" content="2026-02-13" />
 
 <title>Visualize CRISPR perturbations</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Visualize CRISPR perturbations</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">September 17, 2025</h4>
+<h4 class="date">February 13, 2026</h4>
 
 </div>
 
@@ -1524,11 +1524,11 @@ source(&quot;scripts/r/caching.r&quot;)
 source(&quot;scripts/r/metapeak_functions.r&quot;)
 
 #Specific sources
+library(DESeq2)
 library(BSgenome.Mmusculus.UCSC.mm10)
 library(TxDb.Mmusculus.UCSC.mm10.knownGene)
 library(ggseqlogo)
 library(rhdf5)
-library(DESeq2)
 source(&quot;scripts/r/motif_functions.r&quot;)
 
 #Pre-existing variables
@@ -2670,6 +2670,447 @@ print(results.df)</code></pre>
 ## 10 bpnet_osknz_fold1 klf4     1.14      0.128    1.14       0.127 
 ## # ℹ 14 more rows</code></pre>
 </div>
+<div id="examine-low-affinity-sox2-motif" class="section level2">
+<h2>Examine low-affinity Sox2 motif</h2>
+<p>The reviewer asks: “What happens if the low-affinity motif is deleted
+independently? How does accessibility change when the proximal or the
+low-affinity Sox2 motif are mutated in isolation, and is the sum of
+those less than the total accessibility measured in the native
+enhancer?”</p>
+<p>So we will explicitly visualize the low-affinity motif’s effects on
+the Akr1cl enhancer.</p>
+<pre class="r"><code>#Isolate Akr1cl motifs
+akr1cl.gr&lt;-GenomicRanges::resize(GRanges(scenarios.df$seqnames_distal, IRanges(scenarios.df$genomic_start_distal, scenarios.df$genomic_end_distal), strand = &#39;*&#39;), 1000, &#39;center&#39;)
+
+motifs.gr&lt;-motifs.df %&gt;% makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = &#39;seqnames&#39;, start.field = &#39;start&#39;, end.field = &#39;end&#39;)
+akr1cl_motifs.gr&lt;-subsetByOverlaps(motifs.gr, akr1cl.gr)
+akr1cl_motifs.gr</code></pre>
+<pre><code>## GRanges object with 10 ranges and 88 metadata columns:
+##        seqnames            ranges strand |       chrom              name
+##           &lt;Rle&gt;         &lt;IRanges&gt;  &lt;Rle&gt; | &lt;character&gt;       &lt;character&gt;
+##    [1]     chr1 65037654-65037663      - |        chr1  Sox2_253082_3491
+##    [2]     chr1 65037732-65037741      - |        chr1  Sox2_253083_3491
+##    [3]     chr1 65037753-65037762      - |        chr1  Sox2_253084_3491
+##    [4]     chr1 65037823-65037834      + |        chr1    Klf4_1865_3491
+##    [5]     chr1 65037875-65037886      - |        chr1    Klf4_1866_3491
+##    [6]     chr1 65038094-65038105      + |        chr1  Zic3_161005_3491
+##    [7]     chr1 65037509-65037517      + |        chr1 Nanog_313091_3491
+##    [8]     chr1 65037556-65037564      - |        chr1 Nanog_313092_3491
+##    [9]     chr1 65037941-65037949      - |        chr1 Nanog_313093_3491
+##   [10]     chr1 65037952-65037960      - |        chr1 Nanog_313094_3491
+##            score motif_length       motif  motif_id region_id region_start
+##        &lt;numeric&gt;    &lt;numeric&gt; &lt;character&gt; &lt;numeric&gt; &lt;numeric&gt;    &lt;numeric&gt;
+##    [1]         0            9        Sox2    253082      3491     65036790
+##    [2]         0            9        Sox2    253083      3491     65036790
+##    [3]         0            9        Sox2    253084      3491     65036790
+##    [4]         0           11        Klf4      1865      3491     65036790
+##    [5]         0           11        Klf4      1866      3491     65036790
+##    [6]         0           11        Zic3    161005      3491     65036790
+##    [7]         0            8       Nanog    313091      3491     65036790
+##    [8]         0            8       Nanog    313092      3491     65036790
+##    [9]         0            8       Nanog    313093      3491     65036790
+##   [10]         0            8       Nanog    313094      3491     65036790
+##        region_end motif_window_start motif_window_end  short_name
+##         &lt;numeric&gt;          &lt;numeric&gt;        &lt;numeric&gt; &lt;character&gt;
+##    [1]   65038822                864              873       pos_0
+##    [2]   65038822                942              951       pos_0
+##    [3]   65038822                963              972       pos_0
+##    [4]   65038822               1033             1044       pos_0
+##    [5]   65038822               1085             1096       pos_0
+##    [6]   65038822               1304             1315       pos_0
+##    [7]   65038822                719              727       pos_1
+##    [8]   65038822                766              774       pos_1
+##    [9]   65038822               1151             1159       pos_1
+##   [10]   65038822               1162             1170       pos_1
+##        metacluster_name pattern_name    sequence region_index seq_match
+##             &lt;character&gt;  &lt;character&gt; &lt;character&gt;    &lt;numeric&gt; &lt;numeric&gt;
+##    [1]     pos_patterns    pattern_0   GACAAAGGG         3514   9.94129
+##    [2]     pos_patterns    pattern_0   GACAAAGAC         3516   8.92071
+##    [3]     pos_patterns    pattern_0   GACAAAGGG         3515   9.94129
+##    [4]     pos_patterns    pattern_0 AGCCACACCCT         3515  11.57692
+##    [5]     pos_patterns    pattern_0 AGACACACCCT         3516  10.48301
+##    [6]     pos_patterns    pattern_0 GCACAGTTGGG         3516   9.27224
+##    [7]     pos_patterns    pattern_1    TTGATTGC         3516   9.10804
+##    [8]     pos_patterns    pattern_1    ATGATGTG         3514   7.03709
+##    [9]     pos_patterns    pattern_1    GTGATGTC         3516   7.58050
+##   [10]     pos_patterns    pattern_1    TTGAGTGG         3514   7.12443
+##        seq_match_quantile        task       model mapping_state         seq
+##                 &lt;numeric&gt; &lt;character&gt; &lt;character&gt;   &lt;character&gt; &lt;character&gt;
+##    [1]           0.535308        sox2 bpnet_osknz          bind   GACAAAGGG
+##    [2]           0.180524        sox2 bpnet_osknz          both   GACAAAGAC
+##    [3]           0.535308        sox2 bpnet_osknz          both   GACAAAGGG
+##    [4]           0.963738        klf4 bpnet_osknz          both AGGGTGTGGCT
+##    [5]           0.510964        klf4 bpnet_osknz          both AGGGTGTGTCT
+##    [6]           0.365031        zic3 bpnet_osknz          bind GCACAGTTGGG
+##    [7]           1.000000       nanog bpnet_osknz          bind    GCAATCAA
+##    [8]           0.224459       nanog bpnet_osknz          bind    CACATCAT
+##    [9]           0.429351       nanog bpnet_osknz          bind    GACATCAC
+##   [10]           0.270555       nanog bpnet_osknz          bind    CCACTCAA
+##        region_id_y region_start_1based region_end_1based         island_content
+##          &lt;numeric&gt;           &lt;numeric&gt;         &lt;numeric&gt;            &lt;character&gt;
+##    [1]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [2]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [3]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [4]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [5]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [6]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [7]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [8]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##    [9]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##   [10]        3491            65037307          65038306 Klf4:2_Nanog:4_Sox2:..
+##        island_content_ordered island_content_unique island_count acc_contrib
+##                   &lt;character&gt;           &lt;character&gt;    &lt;numeric&gt;   &lt;numeric&gt;
+##    [1] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.04898930
+##    [2] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.16026688
+##    [3] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.37767029
+##    [4] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.32199287
+##    [5] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.18996334
+##    [6] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10  0.00692821
+##    [7] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10 -0.02125216
+##    [8] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10 -0.03209925
+##    [9] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10 -0.01171398
+##   [10] Nanog_Nanog_Sox2_Sox..  Klf4_Nanog_Sox2_Zic3           10 -0.00347376
+##        oct4_contrib sox2_contrib nanog_contrib klf4_contrib zic3_contrib
+##           &lt;numeric&gt;    &lt;numeric&gt;     &lt;numeric&gt;    &lt;numeric&gt;    &lt;numeric&gt;
+##    [1]  -0.00770259   0.09506226     0.1124914    0.0314345   0.02941561
+##    [2]   0.01333880   0.04592538     0.1175461    0.0210257   0.02626181
+##    [3]   0.01997089   0.13143158     0.1355867    0.0564118   0.04932070
+##    [4]   0.01973724   0.05605876     0.1300173    0.5315971   0.06389904
+##    [5]   0.00397253   0.00581074     0.0166378    0.2110496  -0.02386141
+##    [6]  -0.01551372  -0.00639480    -0.0232391   -0.0189087   0.11016846
+##    [7]  -0.01361585   0.01311529     0.2014847   -0.0222559   0.01981020
+##    [8]  -0.00678492  -0.00336957     0.0624313   -0.0150580  -0.00647211
+##    [9]  -0.00784445  -0.00259805     0.0715141   -0.0160698  -0.01274753
+##   [10]  -0.00689530  -0.00472111     0.0807819   -0.0105416  -0.00629520
+##        bind_contrib is_across_erv motif_num pattern_center pattern_name_unique
+##           &lt;numeric&gt;     &lt;logical&gt; &lt;numeric&gt;      &lt;numeric&gt;         &lt;character&gt;
+##    [1]    0.0950623          TRUE         1            352              Sox2-1
+##    [2]    0.0459254          TRUE         2            430              Sox2-2
+##    [3]    0.1314316          TRUE         3            451              Sox2-3
+##    [4]    0.5315971          TRUE         1            522              Klf4-1
+##    [5]    0.2110496          TRUE         2            574              Klf4-2
+##    [6]    0.1101685          TRUE         1            793              Zic3-1
+##    [7]    0.2014847          TRUE         1            207             Nanog-1
+##    [8]    0.0624313          TRUE         2            254             Nanog-2
+##    [9]    0.0715141          TRUE         3            639             Nanog-3
+##   [10]    0.0807819          TRUE         4            650             Nanog-4
+##        bpnet_osknz/oct4/dA/pc bpnet_osknz/oct4/dA/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0262655                      145.721
+##    [2]              0.0242243                      127.771
+##    [3]              0.0248743                      134.402
+##    [4]              0.0241114                      129.068
+##    [5]              0.0283260                      160.416
+##    [6]              0.0279675                      160.804
+##    [7]              0.0239987                      141.184
+##    [8]              0.0265910                      152.624
+##    [9]              0.0249033                      144.547
+##   [10]              0.0259971                      150.798
+##        bpnet_osknz/oct4/WT/pc bpnet_osknz/oct4/WT/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0259884                      150.586
+##    [2]              0.0259884                      150.586
+##    [3]              0.0259884                      150.586
+##    [4]              0.0259884                      150.586
+##    [5]              0.0259884                      150.586
+##    [6]              0.0259884                      150.586
+##    [7]              0.0259884                      150.586
+##    [8]              0.0259884                      150.586
+##    [9]              0.0259884                      150.586
+##   [10]              0.0259884                      150.586
+##        bpnet_osknz/sox2/dA/pc bpnet_osknz/sox2/dA/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0239022                      115.886
+##    [2]              0.0241204                      109.007
+##    [3]              0.0224654                      103.064
+##    [4]              0.0223310                      108.433
+##    [5]              0.0277760                      142.118
+##    [6]              0.0270801                      140.559
+##    [7]              0.0238415                      125.612
+##    [8]              0.0263872                      136.225
+##    [9]              0.0243696                      129.313
+##   [10]              0.0252837                      133.291
+##        bpnet_osknz/sox2/WT/pc bpnet_osknz/sox2/WT/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0261008                      135.491
+##    [2]              0.0261008                      135.491
+##    [3]              0.0261008                      135.491
+##    [4]              0.0261008                      135.491
+##    [5]              0.0261008                      135.491
+##    [6]              0.0261008                      135.491
+##    [7]              0.0261008                      135.491
+##    [8]              0.0261008                      135.491
+##    [9]              0.0261008                      135.491
+##   [10]              0.0261008                      135.491
+##        bpnet_osknz/nanog/dA/pc bpnet_osknz/nanog/dA/pred_sum
+##                      &lt;numeric&gt;                     &lt;numeric&gt;
+##    [1]               0.0631562                       522.233
+##    [2]               0.0601498                       426.424
+##    [3]               0.0619896                       485.375
+##    [4]               0.0541600                       470.811
+##    [5]               0.0751147                       734.883
+##    [6]               0.0708986                       686.551
+##    [7]               0.0519035                       485.752
+##    [8]               0.0637337                       600.594
+##    [9]               0.0531334                       519.721
+##   [10]               0.0565618                       550.684
+##        bpnet_osknz/nanog/WT/pc bpnet_osknz/nanog/WT/pred_sum
+##                      &lt;numeric&gt;                     &lt;numeric&gt;
+##    [1]               0.0674841                       642.279
+##    [2]               0.0674841                       642.279
+##    [3]               0.0674841                       642.279
+##    [4]               0.0674841                       642.279
+##    [5]               0.0674841                       642.279
+##    [6]               0.0674841                       642.279
+##    [7]               0.0674841                       642.279
+##    [8]               0.0674841                       642.279
+##    [9]               0.0674841                       642.279
+##   [10]               0.0674841                       642.279
+##        bpnet_osknz/klf4/dA/pc bpnet_osknz/klf4/dA/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0419846                      264.222
+##    [2]              0.0406092                      231.724
+##    [3]              0.0406020                      237.013
+##    [4]              0.0281807                      130.429
+##    [5]              0.0408836                      240.533
+##    [6]              0.0454621                      291.021
+##    [7]              0.0382779                      249.534
+##    [8]              0.0422685                      263.965
+##    [9]              0.0405960                      258.674
+##   [10]              0.0417866                      266.991
+##        bpnet_osknz/klf4/WT/pc bpnet_osknz/klf4/WT/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]              0.0426433                      270.667
+##    [2]              0.0426433                      270.667
+##    [3]              0.0426433                      270.667
+##    [4]              0.0426433                      270.667
+##    [5]              0.0426433                      270.667
+##    [6]              0.0426433                      270.667
+##    [7]              0.0426433                      270.667
+##    [8]              0.0426433                      270.667
+##    [9]              0.0426433                      270.667
+##   [10]              0.0426433                      270.667
+##        bpnet_osknz/zic3/dA/pc bpnet_osknz/zic3/dA/pred_sum
+##                     &lt;numeric&gt;                    &lt;numeric&gt;
+##    [1]             0.00982879                      49.4925
+##    [2]             0.00951389                      44.5080
+##    [3]             0.00961753                      47.8673
+##    [4]             0.00903381                      43.0416
+##    [5]             0.01159267                      61.6981
+##    [6]             0.00919713                      51.1646
+##    [7]             0.00818881                      46.8287
+##    [8]             0.01017083                      54.3322
+##    [9]             0.00960287                      52.3733
+##   [10]             0.00990568                      53.7947
+##        bpnet_osknz/zic3/WT/pc bpnet_osknz/zic3/WT/pred_sum atac_wt/atac/dA/pc
+##                     &lt;numeric&gt;                    &lt;numeric&gt;          &lt;numeric&gt;
+##    [1]                0.01026                      54.8605           0.386362
+##    [2]                0.01026                      54.8605           0.223266
+##    [3]                0.01026                      54.8605           0.167965
+##    [4]                0.01026                      54.8605           0.273241
+##    [5]                0.01026                      54.8605           0.283448
+##    [6]                0.01026                      54.8605           0.319686
+##    [7]                0.01026                      54.8605           0.311506
+##    [8]                0.01026                      54.8605           0.331800
+##    [9]                0.01026                      54.8605           0.318962
+##   [10]                0.01026                      54.8605           0.295712
+##        atac_wt/atac/dA/pred_sum atac_wt/atac/WT/pc atac_wt/atac/WT/pred_sum
+##                       &lt;numeric&gt;          &lt;numeric&gt;                &lt;numeric&gt;
+##    [1]                 1285.582           0.315173                  1062.27
+##    [2]                  678.206           0.315173                  1062.27
+##    [3]                  516.301           0.315173                  1062.27
+##    [4]                  688.898           0.315173                  1062.27
+##    [5]                  800.311           0.315173                  1062.27
+##    [6]                 1075.180           0.315173                  1062.27
+##    [7]                 1061.647           0.315173                  1062.27
+##    [8]                 1124.924           0.315173                  1062.27
+##    [9]                 1066.122           0.315173                  1062.27
+##   [10]                  995.705           0.315173                  1062.27
+##        atac_0h/atac/dA/pc atac_0h/atac/dA/pred_sum atac_0h/atac/WT/pc
+##                 &lt;numeric&gt;                &lt;numeric&gt;          &lt;numeric&gt;
+##    [1]            7.41172                 10418.39            7.74879
+##    [2]            7.18365                  9702.70            7.74879
+##    [3]            7.31258                  9716.32            7.74879
+##    [4]            7.47758                  9778.06            7.74879
+##    [5]            7.44998                  9673.33            7.74879
+##    [6]            7.76122                 10852.69            7.74879
+##    [7]            7.02133                 10502.46            7.74879
+##    [8]            7.71170                 10643.79            7.74879
+##    [9]            7.84294                 11206.49            7.74879
+##   [10]            7.83000                 10987.73            7.74879
+##        atac_0h/atac/WT/pred_sum atac_3h/atac/dA/pc atac_3h/atac/dA/pred_sum
+##                       &lt;numeric&gt;          &lt;numeric&gt;                &lt;numeric&gt;
+##    [1]                  10928.8            9.04595                  15141.1
+##    [2]                  10928.8            8.62742                  13812.6
+##    [3]                  10928.8            8.58996                  13812.2
+##    [4]                  10928.8            7.70875                  10996.7
+##    [5]                  10928.8            8.75842                  13241.6
+##    [6]                  10928.8            9.46791                  15669.7
+##    [7]                  10928.8            9.98078                  16115.2
+##    [8]                  10928.8            9.64340                  16286.0
+##    [9]                  10928.8            9.61920                  15902.1
+##   [10]                  10928.8            9.51775                  15963.6
+##        atac_3h/atac/WT/pc atac_3h/atac/WT/pred_sum atac_6h/atac/dA/pc
+##                 &lt;numeric&gt;                &lt;numeric&gt;          &lt;numeric&gt;
+##    [1]            9.50909                  15870.9            9.68858
+##    [2]            9.50909                  15870.9            9.21760
+##    [3]            9.50909                  15870.9            9.11113
+##    [4]            9.50909                  15870.9            9.33621
+##    [5]            9.50909                  15870.9           10.26881
+##    [6]            9.50909                  15870.9           10.35206
+##    [7]            9.50909                  15870.9            9.23997
+##    [8]            9.50909                  15870.9           10.87927
+##    [9]            9.50909                  15870.9           10.41971
+##   [10]            9.50909                  15870.9           10.35744
+##        atac_6h/atac/dA/pred_sum atac_6h/atac/WT/pc atac_6h/atac/WT/pred_sum
+##                       &lt;numeric&gt;          &lt;numeric&gt;                &lt;numeric&gt;
+##    [1]                  16013.3            10.2287                  16931.3
+##    [2]                  14960.3            10.2287                  16931.3
+##    [3]                  14409.1            10.2287                  16931.3
+##    [4]                  13615.6            10.2287                  16931.3
+##    [5]                  15679.0            10.2287                  16931.3
+##    [6]                  16731.3            10.2287                  16931.3
+##    [7]                  16414.1            10.2287                  16931.3
+##    [8]                  17198.9            10.2287                  16931.3
+##    [9]                  17225.5            10.2287                  16931.3
+##   [10]                  17152.5            10.2287                  16931.3
+##        atac_9h/atac/dA/pc atac_9h/atac/dA/pred_sum atac_9h/atac/WT/pc
+##                 &lt;numeric&gt;                &lt;numeric&gt;          &lt;numeric&gt;
+##    [1]            5.95287                  9531.32            6.13066
+##    [2]            5.88919                  9177.48            6.13066
+##    [3]            6.01083                  9382.40            6.13066
+##    [4]            5.95211                  8394.74            6.13066
+##    [5]            6.20231                  9309.29            6.13066
+##    [6]            6.12559                  9586.58            6.13066
+##    [7]            6.07331                  9903.33            6.13066
+##    [8]            6.11159                  9863.94            6.13066
+##    [9]            6.16349                  9930.69            6.13066
+##   [10]            6.25735                 10195.63            6.13066
+##        atac_9h/atac/WT/pred_sum atac_12h/atac/dA/pc atac_12h/atac/dA/pred_sum
+##                       &lt;numeric&gt;           &lt;numeric&gt;                 &lt;numeric&gt;
+##    [1]                  9779.83             6.80768                   9463.32
+##    [2]                  9779.83             6.82405                   9296.43
+##    [3]                  9779.83             6.73870                   9063.17
+##    [4]                  9779.83             6.73907                   8606.79
+##    [5]                  9779.83             6.96593                   8932.83
+##    [6]                  9779.83             6.87472                   9348.71
+##    [7]                  9779.83             6.50173                   9280.62
+##    [8]                  9779.83             7.74799                  10003.08
+##    [9]                  9779.83             6.72694                   9274.43
+##   [10]                  9779.83             6.81554                   9483.53
+##        atac_12h/atac/WT/pc atac_12h/atac/WT/pred_sum atac_15h/atac/dA/pc
+##                  &lt;numeric&gt;                 &lt;numeric&gt;           &lt;numeric&gt;
+##    [1]              6.8614                    9444.9             6.33121
+##    [2]              6.8614                    9444.9             6.46951
+##    [3]              6.8614                    9444.9             6.47404
+##    [4]              6.8614                    9444.9             6.36191
+##    [5]              6.8614                    9444.9             6.46227
+##    [6]              6.8614                    9444.9             6.59702
+##    [7]              6.8614                    9444.9             6.53454
+##    [8]              6.8614                    9444.9             6.52428
+##    [9]              6.8614                    9444.9             6.67253
+##   [10]              6.8614                    9444.9             6.59819
+##        atac_15h/atac/dA/pred_sum atac_15h/atac/WT/pc atac_15h/atac/WT/pred_sum
+##                        &lt;numeric&gt;           &lt;numeric&gt;                 &lt;numeric&gt;
+##    [1]                   8162.57             6.58457                   8434.98
+##    [2]                   8191.31             6.58457                   8434.98
+##    [3]                   8170.93             6.58457                   8434.98
+##    [4]                   7598.20             6.58457                   8434.98
+##    [5]                   7939.42             6.58457                   8434.98
+##    [6]                   8257.02             6.58457                   8434.98
+##    [7]                   8390.53             6.58457                   8434.98
+##    [8]                   8422.16             6.58457                   8434.98
+##    [9]                   8452.97             6.58457                   8434.98
+##   [10]                   8484.65             6.58457                   8434.98
+##   -------
+##   seqinfo: 20 sequences from an unspecified genome; no seqlengths</code></pre>
+<pre class="r"><code>#Isolate low-affinity Sox2
+la_sox2.gr&lt;-motifs.gr %&gt;% plyranges::filter(motif_id==253083)</code></pre>
+<p>Examine motif pairs and relative cooperativity</p>
+<pre class="r"><code>#Isolate low-affinity Sox2 motif pairs
+pairs.df&lt;-readr::read_tsv(&#39;tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz&#39;) 
+
+#Low-affinity Sox2 cooperativity
+pairs.df %&gt;% plyranges::filter(`motif_id.x`==253083) %&gt;%
+  dplyr::mutate(coop_acc = (`atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`)/(`atac_wt/atac/hB/pred_sum`+`atac_wt/atac/hA/pred_sum`-(2*`atac_wt/atac/null/pred_sum`)),
+                AB = `atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                A = `atac_wt/atac/hA/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                B = `atac_wt/atac/hB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                coop_acc_ln = log(coop_acc),
+                perturb_score = log(`atac_wt/atac/hAB/pred_sum`/`atac_wt/atac/hB/pred_sum`)) %&gt;%
+  as.data.frame() %&gt;%
+  dplyr::select(`pattern_name_unique.x`, `pattern_name_unique.y`, AB, A, B, coop_acc, `coop_acc_ln`, perturb_score, `atac_wt/atac/hAB/pred_sum`, `atac_wt/atac/hA/pred_sum`)</code></pre>
+<pre><code>##   pattern_name_unique.x pattern_name_unique.y       AB        A         B
+## 1                Sox2-2                Klf4-1 681.6755 299.4027 216.72615
+## 2                Sox2-2                Klf4-2 618.0924 338.2412 153.14305
+## 3                Sox2-2               Nanog-1 452.8230 475.9797 -12.12640
+## 4                Sox2-2               Nanog-2 399.7569 503.5858 -65.19250
+## 5                Sox2-2               Nanog-3 446.3025 477.9756 -18.64687
+## 6                Sox2-2               Nanog-4 502.9973 434.6171  38.04790
+## 7                Sox2-2                Sox2-1 389.4709 559.2658 -75.47853
+## 8                Sox2-2                Sox2-3 683.5162 124.7021 218.56685
+## 9                Sox2-2                Zic3-1 464.1242 466.2287  -0.82520
+##    coop_acc  coop_acc_ln perturb_score atac_wt/atac/hAB/pred_sum
+## 1 1.3207469  0.278197407      0.575706                  1062.275
+## 2 1.2578597  0.229411613      0.575706                  1062.275
+## 3 0.9762203 -0.024067018      0.575706                  1062.275
+## 4 0.9118682 -0.092259840      0.575706                  1062.275
+## 5 0.9716407 -0.028769166      0.575706                  1062.275
+## 6 1.0641729  0.062197846      0.575706                  1062.275
+## 7 0.8050458 -0.216856149      0.575706                  1062.275
+## 8 1.9911977  0.688736326      0.575706                  1062.275
+## 9 0.9972512 -0.002752582      0.575706                  1062.275
+##   atac_wt/atac/hA/pred_sum
+## 1                 680.0018
+## 2                 782.4235
+## 3                1085.4314
+## 4                1166.1036
+## 5                1093.9478
+## 6                 993.8945
+## 7                1232.0696
+## 8                 503.4605
+## 9                1064.3792</code></pre>
+<pre class="r"><code>#Proximal Sox2 cooperativity
+pairs.df %&gt;% plyranges::filter(`motif_id.x`==253084) %&gt;%
+  dplyr::mutate(coop_acc = (`atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`)/(`atac_wt/atac/hB/pred_sum`+`atac_wt/atac/hA/pred_sum`-(2*`atac_wt/atac/null/pred_sum`)),
+                 AB = `atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                A = `atac_wt/atac/hA/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                B = `atac_wt/atac/hB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                coop_acc_ln = log(coop_acc),
+                perturb_score = log(`atac_wt/atac/hAB/pred_sum`/`atac_wt/atac/hB/pred_sum`)) %&gt;%
+  as.data.frame() %&gt;%
+  dplyr::select(`pattern_name_unique.x`, `pattern_name_unique.y`, AB, A, B,coop_acc, `coop_acc_ln`, perturb_score, `atac_wt/atac/hAB/pred_sum`, `atac_wt/atac/hA/pred_sum`)</code></pre>
+<pre><code>##   pattern_name_unique.x pattern_name_unique.y       AB        A         B
+## 1                Sox2-3                Klf4-1 747.0420 364.7691 188.22777
+## 2                Sox2-3                Klf4-2 693.5014 413.6501 134.68718
+## 3                Sox2-3               Nanog-1 553.4098 576.5665  -5.40437
+## 4                Sox2-3               Nanog-2 505.3982 609.2271 -53.41596
+## 5                Sox2-3               Nanog-3 540.1948 571.8679 -18.61940
+## 6                Sox2-3               Nanog-4 590.4273 522.0472  31.61312
+## 7                Sox2-3                Sox2-1 480.6160 650.4109 -78.19820
+## 8                Sox2-3                Sox2-2 683.5162 218.5668 124.70205
+## 9                Sox2-3                Zic3-1 559.7651 561.8696   0.95090
+##    coop_acc  coop_acc_ln perturb_score atac_wt/atac/hAB/pred_sum
+## 1 1.3508973  0.300769027     0.7466626                  1062.275
+## 2 1.2647350  0.234862585     0.7466626                  1062.275
+## 3 0.9689189 -0.031574332     0.7466626                  1062.275
+## 4 0.9092984 -0.095081920     0.7466626                  1062.275
+## 5 0.9764054 -0.023877452     0.7466626                  1062.275
+## 6 1.0664072  0.064295278     0.7466626                  1062.275
+## 7 0.8399254 -0.174442161     0.7466626                  1062.275
+## 8 1.9911977  0.688736326     0.7466626                  1062.275
+## 9 0.9945713 -0.005443518     0.7466626                  1062.275
+##   atac_wt/atac/hA/pred_sum
+## 1                 680.0018
+## 2                 782.4235
+## 3                1085.4314
+## 4                1166.1036
+## 5                1093.9478
+## 6                 993.8945
+## 7                1232.0696
+## 8                 597.3253
+## 9                1064.3792</code></pre>
+</div>
 <div id="report-summary-differences-1" class="section level2">
 <h2>Report summary differences</h2>
 <p>For perturbations and experiments, what are the differences between
@@ -3383,19 +3824,19 @@ information is printed below:</p>
 ## [8] methods   base     
 ## 
 ## other attached packages:
-##  [1] DESeq2_1.44.0                            
-##  [2] SummarizedExperiment_1.34.0              
-##  [3] MatrixGenerics_1.16.0                    
-##  [4] matrixStats_1.5.0                        
-##  [5] rhdf5_2.48.0                             
-##  [6] ggseqlogo_0.2                            
-##  [7] TxDb.Mmusculus.UCSC.mm10.knownGene_3.10.0
-##  [8] GenomicFeatures_1.56.0                   
-##  [9] AnnotationDbi_1.66.0                     
-## [10] Biobase_2.64.0                           
-## [11] BSgenome.Mmusculus.UCSC.mm10_1.4.3       
-## [12] BSgenome_1.72.0                          
-## [13] BiocIO_1.14.0                            
+##  [1] rhdf5_2.48.0                             
+##  [2] ggseqlogo_0.2                            
+##  [3] TxDb.Mmusculus.UCSC.mm10.knownGene_3.10.0
+##  [4] GenomicFeatures_1.56.0                   
+##  [5] AnnotationDbi_1.66.0                     
+##  [6] BSgenome.Mmusculus.UCSC.mm10_1.4.3       
+##  [7] BSgenome_1.72.0                          
+##  [8] BiocIO_1.14.0                            
+##  [9] DESeq2_1.44.0                            
+## [10] SummarizedExperiment_1.34.0              
+## [11] Biobase_2.64.0                           
+## [12] MatrixGenerics_1.16.0                    
+## [13] matrixStats_1.5.0                        
 ## [14] viridis_0.6.5                            
 ## [15] viridisLite_0.4.2                        
 ## [16] digest_0.6.37                            

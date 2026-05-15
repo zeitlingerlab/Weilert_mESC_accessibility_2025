@@ -1,4 +1,4 @@
-None<!DOCTYPE html>
+<!DOCTYPE html>
 
 <html lang="en">
 <head><meta charset="utf-8"/>
@@ -7508,22 +7508,6 @@ a.anchor-link {
   }
 </style>
 <!-- End of mermaid configuration --></head>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.css" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.9.1/jquery-ui.min.js" type="text/javascript"></script>
-<link href="https://min.gitcdn.xyz/cdn/ipython-contrib/jupyter_contrib_nbextensions/master/src/jupyter_contrib_nbextensions/nbextensions/toc2/main.css" rel="stylesheet" type="text/css"/>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet" type="text/css"/>
-<script src="https://min.gitcdn.xyz/cdn/ipython-contrib/jupyter_contrib_nbextensions/master/src/jupyter_contrib_nbextensions/nbextensions/toc2/toc2.js"></script>
-<script>
-$( document ).ready(function(){
-
-            var cfg = {};
-            cfg.navigate_menu=false;
-            // fire the main function with these parameters
-            require(['nbextensions/toc2/toc2'], function (toc2) {
-                toc2.table_of_contents(cfg);
-            });
-    });
-</script>
 <body class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
 <main>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
@@ -7547,7 +7531,7 @@ $( document ).ready(function(){
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [41]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="o">%</span><span class="k">load_ext</span> autoreload
@@ -7594,13 +7578,19 @@ $( document ).ready(function(){
 <span class="n">figure_path</span> <span class="o">=</span> <span class="s1">'figures/9_perturb_motifs'</span>
 <span class="n">working_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
 <span class="n">genome</span> <span class="o">=</span> <span class="s1">'../0_setup/fa/mm10.fa'</span>
+
 <span class="n">motifs_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_instances_curated_0based.bed'</span>
 <span class="n">xiong_motifs_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_xiong_instances_curated_0based.bed'</span>
+<span class="n">accessibility_motifs_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_accessibility_instances_curated_0based.bed'</span>
 
 <span class="n">motifs_w_metadata_path</span> <span class="o">=</span> <span class="s1">'tsv/mapped_motifs/all_instances_curated_1based.tsv.gz'</span>
 <span class="n">xiong_motifs_w_metadata_path</span> <span class="o">=</span> <span class="s1">'tsv/mapped_motifs/all_xiong_instances_curated_1based.tsv.gz'</span>
+<span class="n">accessibility_motifs_w_metadata_path</span> <span class="o">=</span> <span class="s1">'tsv/mapped_motifs/all_accessibility_instances_curated_1based.tsv.gz'</span>
+
 <span class="n">regions_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_islands_curated_0based_sized_to_input.bed'</span>
 <span class="n">xiong_regions_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_xiong_islands_curated_0based_sized_to_input.bed'</span>
+<span class="n">accessibility_regions_path</span> <span class="o">=</span> <span class="s1">'bed/mapped_motifs/all_accessibility_islands_curated_0based_sized_to_input.bed'</span>
+
 <span class="n">showcase_medians_path</span> <span class="o">=</span> <span class="s1">'tsv/insilico/marginalizations/motifs/all_median_profiles.tsv.gz'</span>
 
 <span class="n">motif_to_task_dict</span> <span class="o">=</span> <span class="p">{</span><span class="s1">'Oct4-Sox2'</span><span class="p">:</span> <span class="s1">'oct4'</span><span class="p">,</span> 
@@ -7659,13 +7649,9 @@ $( document ).ready(function(){
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2025-07-02 09:13:38.873473: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:9261] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
-2025-07-02 09:13:38.873513: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:607] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
-2025-07-02 09:13:38.874919: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1515] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-2025-07-02 09:13:38.882132: I tensorflow/core/platform/cpu_feature_guard.cc:182] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
-To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
-2025-07-02 09:13:40.022237: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>The autoreload extension is already loaded. To reload it, use:
+  %reload_ext autoreload
 </pre>
 </div>
 </div>
@@ -7687,7 +7673,7 @@ To enable the following instructions: AVX2 AVX512F FMA, in other operations, reb
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [2]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [42]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span> <span class="nf">generate_slurm_array</span><span class="p">(</span><span class="n">cmds</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">simultaneous_jobs</span> <span class="o">=</span> <span class="mi">4</span><span class="p">):</span>
@@ -7699,7 +7685,7 @@ To enable the following instructions: AVX2 AVX512F FMA, in other operations, reb
                   <span class="s1">'#SBATCH --mem=200gb'</span><span class="p">,</span> 
                   <span class="s1">'#SBATCH --time=72:00:00'</span><span class="p">,</span>
                   <span class="s1">'#SBATCH --partition=gpu'</span><span class="p">,</span> 
-                  <span class="s1">'#SBATCH --gres=gpu:a100:1'</span><span class="p">,</span>
+                  <span class="s1">'#SBATCH --gres=gpu:1'</span><span class="p">,</span>
                   <span class="s1">'#SBATCH --cpus-per-task=10'</span><span class="p">,</span>
                   <span class="s1">'source /home/mw2098/.bashrc'</span><span class="p">,</span>
                   <span class="s1">'conda deactivate'</span><span class="p">,</span>
@@ -7736,7 +7722,7 @@ To enable the following instructions: AVX2 AVX512F FMA, in other operations, reb
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [46]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="k">def</span> <span class="nf">write_genomic_perturb_script</span><span class="p">(</span><span class="n">motifs_df_path</span><span class="p">,</span> <span class="n">motif_groups_df_path</span><span class="p">,</span> 
@@ -7752,14 +7738,14 @@ To enable the following instructions: AVX2 AVX512F FMA, in other operations, reb
                                  <span class="n">comb_max</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">comb_min</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> 
                                  <span class="n">nodes</span> <span class="o">=</span> <span class="mi">24</span><span class="p">,</span> <span class="n">trials</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> 
                                  <span class="n">input_seqlen</span> <span class="o">=</span> <span class="mi">2114</span><span class="p">,</span> 
-                                 <span class="n">output_seqlen</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">):</span>
+                                 <span class="n">output_seqlen</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">mem</span> <span class="o">=</span> <span class="mi">500</span><span class="p">):</span>
     
     <span class="n">working_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
     <span class="n">gpu_header</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'#!/bin/bash'</span><span class="p">,</span>
                       <span class="s1">'#SBATCH --job-name genomic_perturbations'</span><span class="p">,</span>
                       <span class="s1">'#SBATCH --output=slurm_%j.log'</span><span class="p">,</span>
-                      <span class="s1">'#SBATCH --mem=500gb'</span><span class="p">,</span> <span class="s1">'#SBATCH --time=72:00:00'</span><span class="p">,</span>
-                      <span class="s1">'#SBATCH --partition=gpu'</span><span class="p">,</span> <span class="s1">'#SBATCH --gres=gpu:a100:1'</span><span class="p">,</span>
+                      <span class="sa">f</span><span class="s1">'#SBATCH --mem=</span><span class="si">{</span><span class="n">mem</span><span class="si">}</span><span class="s1">gb'</span><span class="p">,</span> <span class="s1">'#SBATCH --time=72:00:00'</span><span class="p">,</span>
+                      <span class="s1">'#SBATCH --partition=gpu'</span><span class="p">,</span> <span class="s1">'#SBATCH --gres=gpu:1'</span><span class="p">,</span>
                       <span class="s1">'#SBATCH --cpus-per-task=30'</span><span class="p">,</span>
                       <span class="s1">'source /home/mw2098/.bashrc'</span><span class="p">,</span>
                       <span class="s1">'conda deactivate'</span><span class="p">,</span>
@@ -8740,7 +8726,18 @@ sbatch scripts/genomic/motifs/genomic_pertubs_all_motifs_atac_15h.slurm
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="Filter-median-motifs-for-showcase-isolation/context-contrast">Filter median motifs for showcase isolation/context contrast<a class="anchor-link" href="#Filter-median-motifs-for-showcase-isolation/context-contrast">¶</a></h2><p>In previous scripts, we filtered the center 100 motifs based on median isolations score signals to depict the profiles across different motifs. We will take all motifs that fit those exact sequences and keep the profiles of contribution scores.</p>
+<h2 id="Generate-binding-and-accessibility-perturbations-across-alternate-models">Generate binding and accessibility perturbations across alternate models<a class="anchor-link" href="#Generate-binding-and-accessibility-perturbations-across-alternate-models">¶</a></h2>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Define alternate models that were trained under different region paradigms.</p>
 </div>
 </div>
 </div>
@@ -8750,6 +8747,134 @@ sbatch scripts/genomic/motifs/genomic_pertubs_all_motifs_atac_15h.slurm
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
 <div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">tasks</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'oct4'</span><span class="p">,</span><span class="s1">'sox2'</span><span class="p">,</span><span class="s1">'nanog'</span><span class="p">,</span><span class="s1">'klf4'</span><span class="p">,</span><span class="s1">'zic3'</span><span class="p">]</span>
+
+<span class="n">modeling_design_alternate_dict</span> <span class="o">=</span> <span class="p">{</span>
+
+    <span class="s1">'bpnet_osknz_across_genome'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">region_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s1">'pos'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_positive.bw'</span><span class="p">,</span>
+                    <span class="s1">'neg'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_negative.bw'</span><span class="p">}</span>
+                <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/bpnet_osknz_across_genome_fold1.model/'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">2</span>    
+    <span class="p">},</span>
+    <span class="s1">'bpnet_osknz_across_split'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">region_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s1">'pos'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_positive.bw'</span><span class="p">,</span>
+                    <span class="s1">'neg'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_negative.bw'</span><span class="p">}</span>
+                <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/bpnet_osknz_across_split_fold1.model/'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">2</span>    
+    <span class="p">},</span>
+    <span class="s1">'bpnet_osknz_across_acc'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">region_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s1">'pos'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_positive.bw'</span><span class="p">,</span>
+                    <span class="s1">'neg'</span><span class="p">:</span> <span class="s1">'bw/mesc_'</span> <span class="o">+</span> <span class="n">k</span> <span class="o">+</span> <span class="s1">'_nexus_combined_negative.bw'</span><span class="p">}</span>
+                <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">tasks</span><span class="p">},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/bpnet_osknz_across_acc_fold1.model'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">2</span>    
+    <span class="p">},</span>
+    
+
+    <span class="s1">'atac_wt_across_genome'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="p">[</span><span class="s1">'atac'</span><span class="p">],</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'atac'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'cutsite'</span><span class="p">:</span> <span class="s1">'bw/mesc_native_atac_cutsites_combined.bw'</span><span class="p">}},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/atac_wt_across_genome_fold1_residual.model/'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">1</span>
+    <span class="p">},</span>
+    <span class="s1">'atac_wt_across_split'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="p">[</span><span class="s1">'atac'</span><span class="p">],</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'atac'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'cutsite'</span><span class="p">:</span> <span class="s1">'bw/mesc_native_atac_cutsites_combined.bw'</span><span class="p">}},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/atac_wt_across_split_fold1_residual.model/'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">1</span>
+    <span class="p">},</span>
+    <span class="s1">'atac_wt_across_acc'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'tasks'</span><span class="p">:</span> <span class="p">[</span><span class="s1">'atac'</span><span class="p">],</span>
+        <span class="s1">'cov'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'atac'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'cutsite'</span><span class="p">:</span> <span class="s1">'bw/mesc_native_atac_cutsites_combined.bw'</span><span class="p">}},</span>
+        <span class="s1">'model_dir'</span><span class="p">:</span> <span class="s1">'models/atac_wt_across_acc_fold1_residual.model/'</span><span class="p">,</span>
+        <span class="s1">'num-channels'</span><span class="p">:</span> <span class="mi">1</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Allow combinations of up to 2 and up to 3 mutations. This is promarily used for cooperativity and comparisons among island effects.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_alternate_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">write_genomic_perturb_script</span><span class="p">(</span><span class="n">motifs_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">motif_groups_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/regions_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">model_dir</span> <span class="o">=</span> <span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'model_dir'</span><span class="p">],</span> 
+                                 <span class="n">fasta_file</span> <span class="o">=</span> <span class="n">genome</span><span class="p">,</span>
+                                 <span class="n">tasks_in_model_order</span> <span class="o">=</span> <span class="s1">','</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'tasks'</span><span class="p">]),</span>
+                                 <span class="n">output_prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/genomic_pertubs_alternate_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">'</span><span class="p">,</span> 
+                                 <span class="n">output_cmd_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">,</span> 
+                                 <span class="n">input_seqlen</span> <span class="o">=</span> <span class="n">input_length</span><span class="p">,</span> 
+                                 <span class="n">output_seqlen</span> <span class="o">=</span> <span class="n">output_length</span><span class="p">,</span>
+                                 <span class="n">trials</span> <span class="o">=</span> <span class="n">trials</span><span class="p">,</span>
+                                 <span class="n">comb_max</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">comb_min</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_bpnet_osknz_across_genome.slurm
+sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_bpnet_osknz_across_split.slurm
+sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_bpnet_osknz_across_acc.slurm
+sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_atac_wt_across_genome.slurm
+sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_atac_wt_across_split.slurm
+sbatch scripts/genomic/motifs/genomic_pertubs_alternate_whole_window_atac_wt_across_acc.slurm
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="Filter-median-motifs-for-showcase-isolation/context-contrast">Filter median motifs for showcase isolation/context contrast<a class="anchor-link" href="#Filter-median-motifs-for-showcase-isolation/context-contrast">¶</a></h2><p>In previous scripts, we filtered the center 100 motifs based on median isolations score signals to depict the profiles across different motifs. We will take all motifs that fit those exact sequences and keep the profiles of contribution scores.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">median_seqs_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">showcase_medians_path</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s1">'</span><span class="se">\t</span><span class="s1">'</span><span class="p">)</span>
@@ -8764,7 +8889,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_all_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [17]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [19]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Save motifs</span>
@@ -8811,7 +8936,7 @@ Name: count, dtype: int64
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [18]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [20]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -8869,7 +8994,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [19]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [21]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -8919,14 +9044,14 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>100%|████████████████████████████████████████████████████████| 20/20 [13:35&lt;00:00, 40.76s/it]
-100%|████████████████████████████████████████████████████████| 20/20 [00:09&lt;00:00,  2.11it/s]
-100%|████████████████████████████████████████████████████████| 20/20 [00:09&lt;00:00,  2.06it/s]
-100%|████████████████████████████████████████████████████████| 20/20 [00:10&lt;00:00,  1.96it/s]
-100%|████████████████████████████████████████████████████████| 20/20 [00:09&lt;00:00,  2.03it/s]
-100%|████████████████████████████████████████████████████████| 20/20 [00:10&lt;00:00,  1.96it/s]
-100%|████████████████████████| 20/20 [00:09&lt;00:00,  2.04it/s]
-100%|███████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:09&lt;00:00,  2.13it/s]
+<pre>100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [13:47&lt;00:00, 41.39s/it]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:12&lt;00:00,  1.63it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:12&lt;00:00,  1.60it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:12&lt;00:00,  1.60it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:11&lt;00:00,  1.72it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:12&lt;00:00,  1.62it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:12&lt;00:00,  1.65it/s]
+100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 20/20 [00:11&lt;00:00,  1.78it/s]
 </pre>
 </div>
 </div>
@@ -8968,7 +9093,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [20]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [22]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Import set of motifs</span>
@@ -9000,7 +9125,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[20]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[22]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -9121,7 +9246,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [21]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [23]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">regions_df</span> <span class="o">=</span> <span class="n">BedTool</span><span class="p">(</span><span class="n">xiong_regions_path</span><span class="p">)</span><span class="o">.</span><span class="n">to_dataframe</span><span class="p">()</span>
@@ -9138,7 +9263,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[21]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[23]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -9235,7 +9360,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [22]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [24]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">regions_df</span><span class="p">[[</span><span class="s1">'region_start'</span><span class="p">,</span><span class="s1">'region_end'</span><span class="p">,</span><span class="s1">'region_id'</span><span class="p">]],</span> <span class="n">on</span> <span class="o">=</span> <span class="s1">'region_id'</span><span class="p">,</span> <span class="n">how</span> <span class="o">=</span> <span class="s1">'left'</span><span class="p">)</span>
@@ -9251,7 +9376,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [23]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [25]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
@@ -9273,7 +9398,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[23]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[25]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -9503,7 +9628,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [24]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [26]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="p">[((</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'start'</span><span class="p">]</span>  <span class="o">-</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_start'</span><span class="p">])</span><span class="o">&gt;=</span><span class="mi">20</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">((</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_end'</span><span class="p">]</span>  <span class="o">-</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'end'</span><span class="p">])</span><span class="o">&gt;=</span><span class="mi">20</span><span class="p">)]</span>
@@ -9542,7 +9667,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [25]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [27]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_w_metadata_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">xiong_motifs_w_metadata_path</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s1">'</span><span class="se">\t</span><span class="s1">'</span><span class="p">)</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'start'</span><span class="p">,</span><span class="s1">'end'</span><span class="p">,</span><span class="s1">'motif'</span><span class="p">,</span> <span class="s1">'strand'</span><span class="p">])</span>
@@ -9572,7 +9697,7 @@ sbatch scripts/genomic/motifs/genomic_pertubs_median_motifs_atac_15h.slurm
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [26]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [28]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Save motifs</span>
@@ -9624,7 +9749,7 @@ Name: count, dtype: int64
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [27]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [29]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Save regions and rename regions_df columns to match more standard bed formatting for accessibility perturbations</span>
@@ -9683,7 +9808,7 @@ Name: count, dtype: int64
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [28]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [30]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -9719,6 +9844,916 @@ sbatch scripts/genomic/motifs/genomic_perturbs_xiong_whole_window_atac_6h.slurm
 sbatch scripts/genomic/motifs/genomic_perturbs_xiong_whole_window_atac_9h.slurm
 sbatch scripts/genomic/motifs/genomic_perturbs_xiong_whole_window_atac_12h.slurm
 sbatch scripts/genomic/motifs/genomic_perturbs_xiong_whole_window_atac_15h.slurm
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span> 
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h1 id="Perform-all-accessibility-genomic-perturbations-and-summarize-effects">Perform all accessibility genomic perturbations and summarize effects<a class="anchor-link" href="#Perform-all-accessibility-genomic-perturbations-and-summarize-effects">¶</a></h1><p>For the expanded set of motifs mapped by the mESC R1 WT accessibility model, perform perturbations on those explicit motifs.</p>
+<h2 id="Format-motifs-for-perturbations">Format motifs for perturbations<a class="anchor-link" href="#Format-motifs-for-perturbations">¶</a></h2><p>To do this, we must first consolidate and organize motifs.</p>
+<p>Here, we need to import the motifs that were curated and add the correct columns such that the bpnet_generate_perturbations script can be satisfied. To do this, we need a 0-based coordinate .tsv file with the following columns: <code>motif</code>, <code>region_id</code>, <code>chrom</code>, <code>motif_window_start</code>, <code>motif_window_end</code>, <code>motif_length</code>.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [24]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Import set of motifs</span>
+<span class="n">motifs_df</span> <span class="o">=</span> <span class="n">BedTool</span><span class="p">(</span><span class="n">accessibility_motifs_path</span><span class="p">)</span><span class="o">.</span><span class="n">to_dataframe</span><span class="p">()</span>
+<span class="n">motifs_df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'chrom'</span><span class="p">,</span><span class="s1">'start'</span><span class="p">,</span><span class="s1">'end'</span><span class="p">,</span><span class="s1">'name'</span><span class="p">,</span><span class="s1">'score'</span><span class="p">,</span><span class="s1">'strand'</span><span class="p">]</span>
+
+<span class="c1">#Separate motif name</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif_length'</span><span class="p">]</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'end'</span><span class="p">]</span> <span class="o">-</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'start'</span><span class="p">]</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif'</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'_'</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif_id'</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'_'</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_id'</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'_'</span><span class="p">)[</span><span class="mi">2</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+<span class="n">motifs_df</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>(165026, 10)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[24]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>chrom</th>
+<th>start</th>
+<th>end</th>
+<th>name</th>
+<th>score</th>
+<th>strand</th>
+<th>motif_length</th>
+<th>motif</th>
+<th>motif_id</th>
+<th>region_id</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>0</th>
+<td>chr1</td>
+<td>3062985</td>
+<td>3062996</td>
+<td>Klf4_0_1</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr>
+<th>1</th>
+<td>chr1</td>
+<td>3445847</td>
+<td>3445858</td>
+<td>Klf4_1_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>1</td>
+<td>7</td>
+</tr>
+<tr>
+<th>2</th>
+<td>chr1</td>
+<td>3445941</td>
+<td>3445952</td>
+<td>Klf4_2_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>2</td>
+<td>7</td>
+</tr>
+<tr>
+<th>3</th>
+<td>chr1</td>
+<td>3446009</td>
+<td>3446020</td>
+<td>Klf4_3_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>3</td>
+<td>7</td>
+</tr>
+<tr>
+<th>4</th>
+<td>chr1</td>
+<td>3446051</td>
+<td>3446062</td>
+<td>Klf4_4_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>4</td>
+<td>7</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Format regions in order to mark the internal motif window coordinates.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [25]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">regions_df</span> <span class="o">=</span> <span class="n">BedTool</span><span class="p">(</span><span class="n">accessibility_regions_path</span><span class="p">)</span><span class="o">.</span><span class="n">to_dataframe</span><span class="p">()</span>
+<span class="n">regions_df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'region_chrom'</span><span class="p">,</span><span class="s1">'region_start'</span><span class="p">,</span><span class="s1">'region_end'</span><span class="p">,</span><span class="s1">'region_id'</span><span class="p">,</span><span class="s1">'region_score'</span><span class="p">,</span><span class="s1">'region_strand'</span><span class="p">]</span>
+<span class="n">regions_df</span><span class="p">[</span><span class="s1">'region_id'</span><span class="p">]</span><span class="o">=</span><span class="n">regions_df</span><span class="p">[</span><span class="s1">'region_id'</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+<span class="n">regions_df</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[25]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>region_chrom</th>
+<th>region_start</th>
+<th>region_end</th>
+<th>region_id</th>
+<th>region_score</th>
+<th>region_strand</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>0</th>
+<td>chr1</td>
+<td>3034877</td>
+<td>3036909</td>
+<td>0</td>
+<td>0</td>
+<td>.</td>
+</tr>
+<tr>
+<th>1</th>
+<td>chr1</td>
+<td>3061940</td>
+<td>3063972</td>
+<td>1</td>
+<td>0</td>
+<td>.</td>
+</tr>
+<tr>
+<th>2</th>
+<td>chr1</td>
+<td>3153532</td>
+<td>3155564</td>
+<td>2</td>
+<td>0</td>
+<td>.</td>
+</tr>
+<tr>
+<th>3</th>
+<td>chr1</td>
+<td>3154618</td>
+<td>3156650</td>
+<td>3</td>
+<td>0</td>
+<td>.</td>
+</tr>
+<tr>
+<th>4</th>
+<td>chr1</td>
+<td>3262851</td>
+<td>3264883</td>
+<td>4</td>
+<td>0</td>
+<td>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Match grouped regions to motifs and collect motif position within the windows to obtain <code>motif_window_start</code> and <code>motif_window_end</code>. We do this now because it is far easier to work with 0-based coordinated in python than in R.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [26]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">regions_df</span><span class="p">[[</span><span class="s1">'region_start'</span><span class="p">,</span><span class="s1">'region_end'</span><span class="p">,</span><span class="s1">'region_id'</span><span class="p">]],</span> <span class="n">on</span> <span class="o">=</span> <span class="s1">'region_id'</span><span class="p">,</span> <span class="n">how</span> <span class="o">=</span> <span class="s1">'left'</span><span class="p">)</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif_window_start'</span><span class="p">]</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'start'</span><span class="p">]</span><span class="o">-</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_start'</span><span class="p">]</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif_window_end'</span><span class="p">]</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'end'</span><span class="p">]</span><span class="o">-</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_start'</span><span class="p">]</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [27]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="n">motifs_df</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>(165026, 14)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[27]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>chrom</th>
+<th>start</th>
+<th>end</th>
+<th>name</th>
+<th>score</th>
+<th>strand</th>
+<th>motif_length</th>
+<th>motif</th>
+<th>motif_id</th>
+<th>region_id</th>
+<th>region_start</th>
+<th>region_end</th>
+<th>motif_window_start</th>
+<th>motif_window_end</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>0</th>
+<td>chr1</td>
+<td>3062985</td>
+<td>3062996</td>
+<td>Klf4_0_1</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>0</td>
+<td>1</td>
+<td>3061940</td>
+<td>3063972</td>
+<td>1045</td>
+<td>1056</td>
+</tr>
+<tr>
+<th>1</th>
+<td>chr1</td>
+<td>3445847</td>
+<td>3445858</td>
+<td>Klf4_1_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>1</td>
+<td>7</td>
+<td>3444938</td>
+<td>3446970</td>
+<td>909</td>
+<td>920</td>
+</tr>
+<tr>
+<th>2</th>
+<td>chr1</td>
+<td>3445941</td>
+<td>3445952</td>
+<td>Klf4_2_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>2</td>
+<td>7</td>
+<td>3444938</td>
+<td>3446970</td>
+<td>1003</td>
+<td>1014</td>
+</tr>
+<tr>
+<th>3</th>
+<td>chr1</td>
+<td>3446009</td>
+<td>3446020</td>
+<td>Klf4_3_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>3</td>
+<td>7</td>
+<td>3444938</td>
+<td>3446970</td>
+<td>1071</td>
+<td>1082</td>
+</tr>
+<tr>
+<th>4</th>
+<td>chr1</td>
+<td>3446051</td>
+<td>3446062</td>
+<td>Klf4_4_7</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>4</td>
+<td>7</td>
+<td>3444938</td>
+<td>3446970</td>
+<td>1113</td>
+<td>1124</td>
+</tr>
+<tr>
+<th>5</th>
+<td>chr1</td>
+<td>3672165</td>
+<td>3672176</td>
+<td>Klf4_5_12</td>
+<td>0</td>
+<td>+</td>
+<td>11</td>
+<td>Klf4</td>
+<td>5</td>
+<td>12</td>
+<td>3671234</td>
+<td>3673266</td>
+<td>931</td>
+<td>942</td>
+</tr>
+<tr>
+<th>6</th>
+<td>chr1</td>
+<td>3672252</td>
+<td>3672263</td>
+<td>Klf4_6_12</td>
+<td>0</td>
+<td>+</td>
+<td>11</td>
+<td>Klf4</td>
+<td>6</td>
+<td>12</td>
+<td>3671234</td>
+<td>3673266</td>
+<td>1018</td>
+<td>1029</td>
+</tr>
+<tr>
+<th>7</th>
+<td>chr1</td>
+<td>3953783</td>
+<td>3953794</td>
+<td>Klf4_7_16</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>7</td>
+<td>16</td>
+<td>3952745</td>
+<td>3954777</td>
+<td>1038</td>
+<td>1049</td>
+</tr>
+<tr>
+<th>8</th>
+<td>chr1</td>
+<td>3957629</td>
+<td>3957640</td>
+<td>Klf4_8_17</td>
+<td>0</td>
+<td>-</td>
+<td>11</td>
+<td>Klf4</td>
+<td>8</td>
+<td>17</td>
+<td>3956618</td>
+<td>3958650</td>
+<td>1011</td>
+<td>1022</td>
+</tr>
+<tr>
+<th>9</th>
+<td>chr1</td>
+<td>3977201</td>
+<td>3977212</td>
+<td>Klf4_9_18</td>
+<td>0</td>
+<td>+</td>
+<td>11</td>
+<td>Klf4</td>
+<td>9</td>
+<td>18</td>
+<td>3976266</td>
+<td>3978298</td>
+<td>935</td>
+<td>946</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Filter motifs on edges of the windows.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [28]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="p">[((</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'start'</span><span class="p">]</span>  <span class="o">-</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_start'</span><span class="p">])</span><span class="o">&gt;=</span><span class="mi">20</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">((</span><span class="n">motifs_df</span><span class="p">[</span><span class="s1">'region_end'</span><span class="p">]</span>  <span class="o">-</span> <span class="n">motifs_df</span><span class="p">[</span><span class="s1">'end'</span><span class="p">])</span><span class="o">&gt;=</span><span class="mi">20</span><span class="p">)]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>(165026, 14)
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Filter motifs that are of poor <code>fann</code> similarity matching to seqlet cluster.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [29]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">motifs_w_metadata_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">accessibility_motifs_w_metadata_path</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s1">'</span><span class="se">\t</span><span class="s1">'</span><span class="p">)</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'start'</span><span class="p">,</span><span class="s1">'end'</span><span class="p">,</span><span class="s1">'motif'</span><span class="p">,</span> <span class="s1">'strand'</span><span class="p">])</span>
+<span class="n">motifs_df</span><span class="p">[</span><span class="s1">'motif_id'</span><span class="p">]</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">motif_id</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+<span class="n">motifs_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">motifs_w_metadata_df</span><span class="p">,</span> <span class="n">how</span> <span class="o">=</span> <span class="s1">'left'</span><span class="p">,</span> <span class="n">on</span> <span class="o">=</span> <span class="s1">'motif_id'</span><span class="p">,</span> <span class="n">suffixes</span><span class="o">=</span><span class="p">(</span><span class="s1">''</span><span class="p">,</span> <span class="s1">'_y'</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>(165026, 33)
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [30]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Save motifs</span>
+<span class="n">motifs_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_instances_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s1">'</span><span class="se">\t</span><span class="s1">'</span><span class="p">,</span> <span class="n">index</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">motif</span><span class="o">.</span><span class="n">value_counts</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">motifs_df</span><span class="o">.</span><span class="n">region_id</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span><span class="o">.</span><span class="n">value_counts</span><span class="p">())</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>motif
+Klf4         66079
+Sox2         19997
+Oct4-Sox2    19690
+Elk          13332
+Esrrb        13236
+Ctcf          7363
+Tead4         6178
+Zic3          5906
+Tcfcp2l1      4511
+Nfy           3709
+Nrf           1863
+bHLH          1734
+Thap1          835
+Zbtb33         420
+Oct4           173
+Name: count, dtype: int64
+count
+1     42564
+2     20437
+3     11076
+4      5662
+5      2702
+6      1138
+7       466
+8       161
+9        63
+10       15
+11        4
+12        4
+15        1
+Name: count, dtype: int64
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span> 
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span> 
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span> 
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [33]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1">#Save regions and rename regions_df columns to match more standard bed formatting for accessibility perturbations</span>
+<span class="c1"># regions_df = regions_df.merge(motifs_df[['region_id','island_count']].drop_duplicates(ignore_index = True, keep = 'first'), </span>
+<span class="c1">#                               on = 'region_id', how = 'left')</span>
+
+<span class="c1">#Create columns depicting island counts</span>
+<span class="n">island_count_df</span> <span class="o">=</span> <span class="n">motifs_df</span><span class="o">.</span><span class="n">region_id</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span>
+<span class="n">regions_w_islands_df</span> <span class="o">=</span> <span class="n">regions_df</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">island_count_df</span><span class="p">,</span> <span class="n">how</span> <span class="o">=</span> <span class="s1">'left'</span><span class="p">)</span>
+<span class="n">regions_w_islands_df</span><span class="p">[</span><span class="s1">'island_count_minus_one'</span><span class="p">]</span> <span class="o">=</span> <span class="n">regions_w_islands_df</span><span class="p">[</span><span class="s1">'count'</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span>
+<span class="n">regions_w_islands_df</span><span class="p">[</span><span class="s1">'island_count_minus_one'</span><span class="p">][</span><span class="n">regions_w_islands_df</span><span class="p">[</span><span class="s1">'island_count_minus_one'</span><span class="p">]</span><span class="o">==</span><span class="mi">0</span><span class="p">]</span><span class="o">=</span><span class="mi">1</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">regions_w_islands_df</span><span class="o">.</span><span class="n">head</span><span class="p">())</span>
+
+<span class="n">regions_w_islands_df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'chrom'</span><span class="p">,</span> <span class="s1">'start'</span><span class="p">,</span> <span class="s1">'end'</span><span class="p">,</span> <span class="s1">'region_id'</span><span class="p">,</span> <span class="s1">'score'</span><span class="p">,</span> <span class="s1">'strand'</span><span class="p">,</span> <span class="s1">'island_count'</span><span class="p">,</span> <span class="s1">'island_count_minus_one'</span><span class="p">]</span>
+<span class="n">regions_w_islands_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_regions_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> <span class="n">sep</span> <span class="o">=</span> <span class="s1">'</span><span class="se">\t</span><span class="s1">'</span><span class="p">,</span> <span class="n">index</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>  region_chrom  region_start  region_end region_id  region_score  \
+0         chr1       3034877     3036909         0             0   
+1         chr1       3061940     3063972         1             0   
+2         chr1       3153532     3155564         2             0   
+3         chr1       3154618     3156650         3             0   
+4         chr1       3262851     3264883         4             0   
+
+  region_strand  count  island_count_minus_one  
+0             .      2                       1  
+1             .      3                       2  
+2             .      1                       1  
+3             .      1                       1  
+4             .      2                       1  
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="Generate-binding-and-accessibility-perturbations">Generate binding and accessibility perturbations<a class="anchor-link" href="#Generate-binding-and-accessibility-perturbations">¶</a></h2>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Allow combinations of up to 2 and up to 3 mutations. This is promarily used for cooperativity and comparisons among island effects.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [34]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">write_genomic_perturb_script</span><span class="p">(</span><span class="n">motifs_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_instances_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">motif_groups_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_regions_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">model_dir</span> <span class="o">=</span> <span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'model_dir'</span><span class="p">],</span> 
+                                 <span class="n">fasta_file</span> <span class="o">=</span> <span class="n">genome</span><span class="p">,</span>
+                                 <span class="n">tasks_in_model_order</span> <span class="o">=</span> <span class="s1">','</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'tasks'</span><span class="p">]),</span>
+                                 <span class="n">output_prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/genomic_perturbs_accessibility_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">'</span><span class="p">,</span> 
+                                 <span class="n">output_cmd_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">,</span> 
+                                 <span class="n">input_seqlen</span> <span class="o">=</span> <span class="n">input_length</span><span class="p">,</span> 
+                                 <span class="n">output_seqlen</span> <span class="o">=</span> <span class="n">output_length</span><span class="p">,</span>
+                                 <span class="n">trials</span> <span class="o">=</span> <span class="n">trials</span><span class="p">,</span>
+                                 <span class="n">comb_max</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">comb_min</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_bpnet_osknz.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_wt.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_0h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_3h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_6h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_9h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_12h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_whole_window_atac_15h.slurm
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="Generate-(island_counts---1)-perturbations">Generate (island_counts - 1) perturbations<a class="anchor-link" href="#Generate-(island_counts---1)-perturbations">¶</a></h2>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [47]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="k">for</span> <span class="n">pertubation_name</span><span class="p">,</span> <span class="n">perturbation_details</span> <span class="ow">in</span> <span class="n">modeling_design_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+    <span class="n">write_genomic_perturb_script</span><span class="p">(</span><span class="n">motifs_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_instances_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">motif_groups_df_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/accessibility_regions_formatted_for_genomic_perturbations_0based.tsv.gz'</span><span class="p">,</span> 
+                                 <span class="n">model_dir</span> <span class="o">=</span> <span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'model_dir'</span><span class="p">],</span> 
+                                 <span class="n">fasta_file</span> <span class="o">=</span> <span class="n">genome</span><span class="p">,</span>
+                                 <span class="n">tasks_in_model_order</span> <span class="o">=</span> <span class="s1">','</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">perturbation_details</span><span class="p">[</span><span class="s1">'tasks'</span><span class="p">]),</span>
+                                 <span class="n">output_prefix</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'tsv/genomic/motifs/genomic_perturbs_accessibility_island_mutations_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">'</span><span class="p">,</span> 
+                                 <span class="n">output_cmd_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">'scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">,</span> 
+                                 <span class="n">input_seqlen</span> <span class="o">=</span> <span class="n">input_length</span><span class="p">,</span> 
+                                 <span class="n">output_seqlen</span> <span class="o">=</span> <span class="n">output_length</span><span class="p">,</span>
+                                 <span class="n">trials</span> <span class="o">=</span> <span class="n">trials</span><span class="p">,</span>
+                                 <span class="n">comb_max</span> <span class="o">=</span> <span class="s1">'island_count'</span><span class="p">,</span> <span class="n">comb_min</span> <span class="o">=</span> <span class="s1">'island_count_minus_one'</span><span class="p">,</span> <span class="n">mem</span> <span class="o">=</span> <span class="mi">100</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">'sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_</span><span class="si">{</span><span class="n">pertubation_name</span><span class="si">}</span><span class="s1">.slurm'</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_bpnet_osknz.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_wt.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_0h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_3h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_6h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_9h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_12h.slurm
+sbatch scripts/genomic/motifs/genomic_perturbs_accessibility_island_mutations_atac_15h.slurm
 </pre>
 </div>
 </div>

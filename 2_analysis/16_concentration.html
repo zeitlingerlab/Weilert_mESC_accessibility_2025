@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-07-24" />
+<meta name="date" content="2026-04-17" />
 
 <title>Assess impacts of motifs across changing concentrations</title>
 
@@ -1494,7 +1494,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">Assess impacts of motifs across changing
 concentrations</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">July 24, 2025</h4>
+<h4 class="date">April 17, 2026</h4>
 
 </div>
 
@@ -1631,6 +1631,17 @@ regions.gr&lt;-rtracklayer::import(regions.path) %&gt;%
                     G = stringr::str_count(island_seq, &#39;G&#39;),
                     CpG = stringr::str_count(island_seq, &#39;CG&#39;),
                     CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / width), 2))</code></pre>
+<p>Measure median accessibility for these regions.</p>
+<pre class="r"><code>regions.gr$atac_obs %&gt;% log(.) %&gt;% summary()</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##    -Inf   4.927   5.361    -Inf   5.905  10.264</code></pre>
+<pre class="r"><code>med_acc&lt;-median(regions.gr$atac_obs)</code></pre>
+<p>Measure median accessibility for regions with high-affinity Sox2
+motif.</p>
+<pre class="r"><code>regions.gr %&gt;% plyranges::filter(region_id %in% c(motifs.gr %&gt;% plyranges::filter(motif==&#39;Sox2&#39;, seq_match_quantile_bin==&#39;smq_3&#39;) %&gt;% .$region_id)) %&gt;%
+  .$atac_obs %&gt;% log(.) %&gt;% summary()</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##   0.000   4.844   5.247   5.322   5.749   7.989</code></pre>
 </div>
 <div id="process-supplemental-motifs" class="section level2">
 <h2>Process supplemental motifs</h2>
@@ -1921,12 +1932,12 @@ log2FoldChange_atac.df&lt;-lapply(paste0(seq(3, 15, 3), &#39;h&#39;), function(x
 colnames(log2FoldChange_atac.df)&lt;-paste0(&#39;deseq_&#39;, seq(3, 15, 3), &#39;h_vs_0h&#39;)
 head(log2FoldChange_atac.df)</code></pre>
 <pre><code>##   deseq_3h_vs_0h deseq_6h_vs_0h deseq_9h_vs_0h deseq_12h_vs_0h deseq_15h_vs_0h
-## 1    -0.37090856   -0.153156033    0.102551357     -0.20443054    -0.108310560
-## 2     0.24510469    0.273182746    0.001033166     -0.05862938     0.104027723
-## 3    -0.40436795    0.227640844   -0.654836238     -0.60574621    -0.503051108
-## 4     0.02648144   -0.004303579   -0.100683824      0.09601912    -0.002666202
-## 5    -0.07957264   -0.097010013   -0.168614982      0.01571568    -0.088992381
-## 6     0.10098966    0.072704187    0.143388257      0.13513098     0.468101161</code></pre>
+## 1    -0.37090856   -0.153156027    0.102551361     -0.20443053    -0.108310556
+## 2     0.24510465    0.273182699    0.001033138     -0.05862942     0.104027676
+## 3    -0.40436796    0.227640833   -0.654836237     -0.60574620    -0.503051112
+## 4     0.02648145   -0.004303571   -0.100683805      0.09601913    -0.002666201
+## 5    -0.07957263   -0.097010006   -0.168614962      0.01571568    -0.088992377
+## 6     0.10098966    0.072704187    0.143388257      0.13513098     0.468101163</code></pre>
 <pre class="r"><code>#Return whether the region is significantly up- or down-regulated
 padj_atac.df&lt;-lapply(paste0(seq(3, 15, 3), &#39;h&#39;), function(x){
   res &lt;- results(dds, contrast=c(&quot;timepoint&quot;,x, &quot;0h&quot;))
@@ -1936,7 +1947,7 @@ colnames(padj_atac.df)&lt;-paste0(&#39;padj_&#39;, seq(3, 15, 3), &#39;h_vs_0h&#
 head(padj_atac.df)</code></pre>
 <pre><code>##   padj_3h_vs_0h padj_6h_vs_0h padj_9h_vs_0h padj_12h_vs_0h padj_15h_vs_0h
 ## 1            NA            NA            NA             NA             NA
-## 2            NA     0.3072666     0.9982259      0.8538062      0.7082605
+## 2            NA     0.3072609     0.9982261      0.8538052       0.708258
 ## 3            NA            NA            NA             NA             NA
 ## 4            NA            NA            NA             NA             NA
 ## 5            NA            NA            NA             NA             NA
@@ -1987,11 +1998,11 @@ head(padj_erna.df)</code></pre>
 ## 6                   1           1.0000000          0.34543639
 ##   ttseq_padj_12h_vs_0h ttseq_padj_15h_vs_0h
 ## 1                   NA                   NA
-## 2         0.7456910796         9.230833e-01
-## 3         0.0000324912         9.705056e-10
-## 4         0.8664747307         7.875962e-01
-## 5         0.6129955366         7.716752e-01
-## 6         0.6204651281         1.000000e+00</code></pre>
+## 2         0.7456910791         9.230833e-01
+## 3         0.0000324912         9.705055e-10
+## 4         0.8664747304         7.875962e-01
+## 5         0.6129955360         7.716752e-01
+## 6         0.6204651280         1.000000e+00</code></pre>
 <pre class="r"><code>regions_w_deseq_both.df&lt;-cbind(regions_w_deseq.df %&gt;% as.data.frame, log2FoldChange_erna.df, padj_erna.df)
 readr::write_tsv(regions_w_deseq_both.df, &#39;tsv/mapped_motifs/all_islands_curated_1based_w_deseq2_data.tsv.gz&#39;)</code></pre>
 </div>
@@ -2550,6 +2561,28 @@ perturbs.df&lt;-motifs.df %&gt;% dplyr::filter(region_id == curated_region_id)</
   ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_diff_accessibility_summary.png&#39;), metaplot, height = 5, width = 10)
   ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_diff_accessibility_summary.pdf&#39;), metaplot, height = 5, width = 10)
 
+  #Plot effect of motif counts
+  island_count_deseq.plot&lt;-grouped.df %&gt;%
+    dplyr::filter(island_count&lt;=4) %&gt;%
+    dplyr::group_by(timepoint, island_count) %&gt;%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T),
+                     freq = dplyr::n()) %&gt;%
+    dplyr::filter(freq &gt;= 200) %&gt;%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = factor(island_count), group = island_count)) +
+    # geom_point()+
+    geom_line()+
+    scale_color_manual(values = turbo(n=4, end = .5, begin = .1))+
+    scale_x_discrete(name = &#39;Timepoint&#39;)+
+    scale_y_continuous(name = &#39;Observed Log2FC (mut/0h)&#39;)+
+    theme_classic()
+
+  print(&#39;Island count of motif arrangment&#39;)
+  print(grouped.df %&gt;% dplyr::select(region_id, island_count) %&gt;% unique %&gt;% .$island_count %&gt;% table)
+  
+  #Save plots as a summary plot
+  ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_diff_accessibility_by_island_count.png&#39;), island_count_deseq.plot, height = 3, width = 5)
+  ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_diff_accessibility_by_island_count.pdf&#39;), island_count_deseq.plot, height = 3, width = 5)
+  
   #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
   
   #Group by number of islands, affinity and accessibility (basal)
@@ -2634,7 +2667,7 @@ perturbs.df&lt;-motifs.df %&gt;% dplyr::filter(region_id == curated_region_id)</
     theme_classic()
   ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_obs_accessibility_expanded.png&#39;), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
   ggsave(paste0(figure_filepath, &#39;/motif_role_over_timepoints_&#39;, x, &#39;_obs_accessibility_expanded.pdf&#39;), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
-  
+
   return(NULL)
 })</code></pre>
 <pre><code>## 
@@ -2643,6 +2676,10 @@ perturbs.df&lt;-motifs.df %&gt;% dplyr::filter(region_id == curated_region_id)</
 ## data:  motifs_w_grouped.df %&gt;% dplyr::filter(island_state == &quot;isolated&quot;) %&gt;% .$atac_obs %&gt;% log and grouped.df %&gt;% dplyr::filter(island_state == &quot;grouped&quot;) %&gt;% .$atac_obs %&gt;% log
 ## W = 51258228, p-value &lt; 2.2e-16
 ## alternative hypothesis: true location shift is not equal to 0</code></pre>
+<pre><code>## [1] &quot;Island count of motif arrangment&quot;
+## .
+##    1    2    3    4    5    6    7    8    9   11 
+## 5182 2880 1326  504  153   54   14    3    2    1</code></pre>
 <pre><code>## # A tibble: 6 × 3
 ## # Groups:   island_state [2]
 ##   island_state seq_match_quantile_bin count
@@ -2659,6 +2696,10 @@ perturbs.df&lt;-motifs.df %&gt;% dplyr::filter(region_id == curated_region_id)</
 ## data:  motifs_w_grouped.df %&gt;% dplyr::filter(island_state == &quot;isolated&quot;) %&gt;% .$atac_obs %&gt;% log and grouped.df %&gt;% dplyr::filter(island_state == &quot;grouped&quot;) %&gt;% .$atac_obs %&gt;% log
 ## W = 272271410, p-value &lt; 2.2e-16
 ## alternative hypothesis: true location shift is not equal to 0</code></pre>
+<pre><code>## [1] &quot;Island count of motif arrangment&quot;
+## .
+##     1     2     3     4     5     6     7     8     9    10    11    12    22 
+## 10100  5264  2089   854   312    90    19    11     7    11     2     2     2</code></pre>
 <pre><code>## # A tibble: 6 × 3
 ## # Groups:   island_state [2]
 ##   island_state seq_match_quantile_bin count
@@ -2692,15 +2733,15 @@ changes?</p>
 residuals.df</code></pre>
 <pre><code>##       Df      Sum Sq     Mean Sq    F value        Pr(&gt;F) var_explained
 ##    &lt;int&gt;       &lt;num&gt;       &lt;num&gt;      &lt;num&gt;         &lt;num&gt;         &lt;num&gt;
-## 1:     1  33.1936841  33.1936841  117.58334  2.480607e-27    0.46751864
-## 2:     1 355.5999062 355.5999062 1259.65599 7.319046e-269    5.00847042
-## 3:     1  31.6946762  31.6946762  112.27334  3.563313e-26    0.44640576
-## 4:     1  30.9451881  30.9451881  127.60777  1.488654e-29    0.25860485
-## 5:     1 124.8357243 124.8357243  514.78143 2.243222e-113    1.04323566
+## 1:     1  33.1936841  33.1936841  117.58334  2.480606e-27    0.46751864
+## 2:     1 355.5999088 355.5999088 1259.65600 7.319013e-269    5.00847046
+## 3:     1  31.6946762  31.6946762  112.27334  3.563312e-26    0.44640577
+## 4:     1  30.9451884  30.9451884  127.60777  1.488653e-29    0.25860485
+## 5:     1 124.8357275 124.8357275  514.78145 2.243207e-113    1.04323569
 ## 6:     1   0.5586818   0.5586818    2.30382  1.290628e-01    0.00466883
-## 7:     1 213.2044618 213.2044618 1479.26096 7.243002e-321    1.66780341
-## 8:     1   5.6553603   5.6553603   39.23817  3.769179e-10    0.04423936
-## 9:     1 286.7683917 286.7683917 1989.66420  0.000000e+00    2.24326122
+## 7:     1 213.2044607 213.2044607 1479.26096 7.243002e-321    1.66780341
+## 8:     1   5.6553606   5.6553606   39.23818  3.769175e-10    0.04423936
+## 9:     1 286.7683838 286.7683838 1989.66416  0.000000e+00    2.24326117
 ##        motif         comparison  model
 ##       &lt;char&gt;             &lt;char&gt; &lt;char&gt;
 ## 1: Oct4-Sox2 seq_match_quantile    acc
@@ -2732,17 +2773,17 @@ residuals_indp.df&lt;-lapply(c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;,&#39;Klf4&#39;
     dplyr::filter(!is.na(`F value`)) %&gt;%
     dplyr::mutate(model = &#39;acc&#39;)
 residuals_indp.df</code></pre>
-<pre><code>##       Df       Sum Sq      Mean Sq      F value        Pr(&gt;F) var_explained
-##    &lt;int&gt;        &lt;num&gt;        &lt;num&gt;        &lt;num&gt;         &lt;num&gt;         &lt;num&gt;
-## 1:     1  33.19368408  33.19368408  111.1485764  6.267278e-26  0.4675186411
-## 2:     1 383.03286399 383.03286399 1349.3808626 2.422138e-287  5.3948517336
-## 3:     1  27.76619634  27.76619634   92.9033588  6.025686e-22  0.3910748307
-## 4:     1  30.94518814  30.94518814  126.2722804  2.912595e-29  0.2586048502
-## 5:     1 115.65939586 115.65939586  475.3235663 7.077350e-105  0.9665502956
-## 6:     1  12.54801651  12.54801651   51.1235573  8.794754e-13  0.1048621167
-## 7:     1 213.20446176 213.20446176 1444.8828503 1.599941e-313  1.6678034076
-## 8:     1   0.02376292   0.02376292    0.1583553  6.906762e-01  0.0001858867
-## 9:     1 461.89475150 461.89475150 3193.4310094  0.000000e+00  3.6131966194
+<pre><code>##       Df      Sum Sq     Mean Sq      F value        Pr(&gt;F) var_explained
+##    &lt;int&gt;       &lt;num&gt;       &lt;num&gt;        &lt;num&gt;         &lt;num&gt;         &lt;num&gt;
+## 1:     1  33.1936841  33.1936841  111.1485765  6.267278e-26  0.4675186416
+## 2:     1 383.0328665 383.0328665 1349.3808717 2.422128e-287  5.3948517681
+## 3:     1  27.7661965  27.7661965   92.9033594  6.025685e-22  0.3910748331
+## 4:     1  30.9451884  30.9451884  126.2722815  2.912593e-29  0.2586048525
+## 5:     1 115.6593988 115.6593988  475.3235790 7.077305e-105  0.9665503211
+## 6:     1  12.5480166  12.5480166   51.1235576  8.794753e-13  0.1048621173
+## 7:     1 213.2044607 213.2044607 1444.8828522 1.599940e-313  1.6678034097
+## 8:     1   0.0237629   0.0237629    0.1583552  6.906764e-01  0.0001858866
+## 9:     1 461.8947435 461.8947435 3193.4309724  0.000000e+00  3.6131965791
 ##        motif         comparison  model
 ##       &lt;char&gt;             &lt;char&gt; &lt;char&gt;
 ## 1: Oct4-Sox2 seq_match_quantile    acc

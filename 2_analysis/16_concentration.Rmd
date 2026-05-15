@@ -165,6 +165,20 @@ regions.gr<-rtracklayer::import(regions.path) %>%
 
 ```
 
+Measure median accessibility for these regions.
+
+```{r}
+regions.gr$atac_obs %>% log(.) %>% summary()
+med_acc<-median(regions.gr$atac_obs)
+```
+
+Measure median accessibility for regions with high-affinity Sox2 motif.
+
+```{r}
+regions.gr %>% plyranges::filter(region_id %in% c(motifs.gr %>% plyranges::filter(motif=='Sox2', seq_match_quantile_bin=='smq_3') %>% .$region_id)) %>%
+  .$atac_obs %>% log(.) %>% summary()
+```
+
 ## Process supplemental motifs
 
 Add in Ctcf motifs for a control comparison:
@@ -1108,6 +1122,28 @@ grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
   ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.png'), metaplot, height = 5, width = 10)
   ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.pdf'), metaplot, height = 5, width = 10)
 
+  #Plot effect of motif counts
+  island_count_deseq.plot<-grouped.df %>%
+    dplyr::filter(island_count<=4) %>%
+    dplyr::group_by(timepoint, island_count) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T),
+                     freq = dplyr::n()) %>%
+    dplyr::filter(freq >= 200) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = factor(island_count), group = island_count)) +
+    # geom_point()+
+    geom_line()+
+    scale_color_manual(values = turbo(n=4, end = .5, begin = .1))+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+
+  print('Island count of motif arrangment')
+  print(grouped.df %>% dplyr::select(region_id, island_count) %>% unique %>% .$island_count %>% table)
+  
+  #Save plots as a summary plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_by_island_count.png'), island_count_deseq.plot, height = 3, width = 5)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_by_island_count.pdf'), island_count_deseq.plot, height = 3, width = 5)
+  
   #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####  #####
   
   #Group by number of islands, affinity and accessibility (basal)
@@ -1192,7 +1228,7 @@ grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
     theme_classic()
   ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_obs_accessibility_expanded.png'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
   ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_obs_accessibility_expanded.pdf'), count_deseq_by_acc_and_affinity.plot, height = 10, width = 10)
-  
+
   return(NULL)
 })
 ```
@@ -1709,6 +1745,7 @@ grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2'), function(x){
   return(NULL)
 })
 ```
+
 
 # Export summary of OS motifs
 

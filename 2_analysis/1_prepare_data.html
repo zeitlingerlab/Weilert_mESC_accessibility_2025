@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-04-08" />
+<meta name="date" content="2026-02-02" />
 
 <title>Data preparation for model training and analysis</title>
 
@@ -1494,7 +1494,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">Data preparation for model training and
 analysis</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">April 08, 2025</h4>
+<h4 class="date">February 02, 2026</h4>
 
 </div>
 
@@ -1554,10 +1554,10 @@ samples.xlsx&lt;-&#39;../0_setup/4_define_samples.xlsx&#39;</code></pre>
 normalize, and export formatted replicate and processed coverage for
 downstream analysis.</p>
 <pre class="r"><code>all_samples&lt;-samples.df$sample_group %&gt;% unique()
-# featured_samples&lt;-all_samples %&gt;% grep(&#39;Btbd11|Akr1cl&#39;, ., value = T)
+featured_samples&lt;-all_samples #%&gt;% grep(&#39;Bunina&#39;, ., value = T) 
 # featured_samples&lt;-samples.df %&gt;% dplyr::filter(reference_genome==&#39;Akr1cl_context_AB&#39;) %&gt;% .$sample_group %&gt;% unique()
 
-filler&lt;-mclapply(all_samples, function(x){
+filler&lt;-mclapply(featured_samples, function(x){
   message(x)
   if(grepl(&#39;atac&#39;, x)){
     
@@ -1666,7 +1666,7 @@ filler&lt;-mclapply(all_samples, function(x){
     rtracklayer::export(rpm.bw, paste0(&#39;bw/&#39;, x, &#39;_combined_normalized_grouped.bw&#39;), format = &quot;BigWig&quot;)       
   }
   return(NULL)
-})</code></pre>
+}, mc.cores = 2)</code></pre>
 </div>
 <div id="generate-reproducible-set-of-peaks" class="section level1">
 <h1>Generate reproducible set of peaks</h1>
@@ -1684,6 +1684,7 @@ c(&#39;#!/bin/bash&#39;, &#39;ml zeitlinger&#39;, pool_cmds.vec$cmd %&gt;% uniqu
 <h2>Generate pooled peaks</h2>
 <pre class="r"><code>peak_cmds.df&lt;-samples.df %&gt;%
   dplyr::group_by(sample_group) %&gt;%
+  # dplyr::filter(sample_group %in% featured_samples) %&gt;%
   dplyr::summarize(cmd = ifelse(unique(experiment)==&#39;ATAC-seq&#39;,
                                 paste0(&#39;macs2 callpeak -f BAMPE -t bam/&#39;, sample_group, &#39;_combined.bam --outdir macs2 -n &#39;, sample_group),
                                 paste0(&#39;macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/&#39;, sample_group, &#39;_combined.bam --outdir macs2 -n &#39;, sample_group)))
@@ -1693,7 +1694,8 @@ c(&#39;#!/bin/bash&#39;, &#39;ml zeitlinger&#39;, peak_cmds.df$cmd) %&gt;% write
 <div id="run-idr" class="section level2">
 <h2>Run IDR</h2>
 <p>Using IDR (v2.0.3), generate reproducible peaks.</p>
-<pre class="r"><code>idr_cmds.vec&lt;-lapply(samples.df$sample_group %&gt;% unique(), function(x){
+<pre class="r"><code># idr_cmds.vec&lt;-lapply(samples.df %&gt;% dplyr::filter(sample_group %in% featured_samples) %&gt;% .$sample_group %&gt;% unique(), function(x){
+idr_cmds.vec&lt;-lapply(samples.df$sample_group %&gt;% unique(), function(x){
   rep_combos.df&lt;-samples.df %&gt;%
     dplyr::filter(sample_group==x) %&gt;%
     .$sample_rep %&gt;%
@@ -1774,7 +1776,7 @@ information is printed below:</p>
 ## [18] Rsamtools_2.20.0                         
 ## [19] plyranges_1.24.0                         
 ## [20] reshape2_1.4.4                           
-## [21] ggplot2_3.5.1                            
+## [21] ggplot2_3.5.2                            
 ## [22] Biostrings_2.72.1                        
 ## [23] XVector_0.44.0                           
 ## [24] magrittr_2.0.3                           
@@ -1787,7 +1789,7 @@ information is printed below:</p>
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] DBI_1.2.3                   bitops_1.0-9               
-##  [3] gridExtra_2.3               readxl_1.4.3               
+##  [3] gridExtra_2.3               readxl_1.4.5               
 ##  [5] rlang_1.1.4                 matrixStats_1.5.0          
 ##  [7] compiler_4.4.1              RSQLite_2.3.9              
 ##  [9] png_0.1-8                   vctrs_0.6.5                

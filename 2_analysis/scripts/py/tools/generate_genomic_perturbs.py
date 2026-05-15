@@ -157,12 +157,15 @@ def bpreveal_generate_perturbations(motifs_df_path, motif_groups_df_path,
         motif_sets = [motifs_df[motifs_df[region_index_column].astype(int)==i] for i in example_idxs]
         windows_n = len(example_idxs)
 
-        if not ((type(comb_max)==int) | (type(comb_max)==str)):
+        if not ((type(comb_max)==int)):# | (type(comb_max)==str)):
             comb_max_vec = [regions_input_df[regions_input_df[region_index_column].astype(int)==i][comb_max].values[0] for i in example_idxs]
+            print(comb_max_vec[:5])
         else:
             comb_max_vec = [int(comb_max)]*windows_n
-        if not ((type(comb_min)==int) | (type(comb_min)==str)):
+
+        if not ((type(comb_min)==int)):# | (type(comb_min)==str)):
             comb_min_vec = [regions_input_df[regions_input_df[region_index_column].astype(int)==i][comb_min].values[0] for i in example_idxs]
+            print(comb_min_vec[:5])
         else:
             comb_min_vec = [int(comb_min)]*windows_n
 

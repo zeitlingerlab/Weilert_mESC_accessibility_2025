@@ -1,0 +1,70 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 16
+Rules claiming more threads will be scaled down.
+Provided resources: mem_mb=500000, mem_mib=476838, disk_mb=500000, disk_mib=476838, cpus_per_task=16
+Select jobs to execute...
+
+[Fri Jan 30 17:44:46 2026]
+Job 0: Running MACS2...
+Reason: Forced execution
+
+INFO  @ Fri, 30 Jan 2026 17:44:46: 
+# Command line: callpeak -f BAMPE -t /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day12_2.bam --outdir /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks -n Bunina_mesc_atac_day12_2
+# ARGUMENTS LIST:
+# name = Bunina_mesc_atac_day12_2
+# format = BAMPE
+# ChIP-seq file = ['/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day12_2.bam']
+# control file = None
+# effective genome size = 2.70e+09
+# band width = 300
+# model fold = [5, 50]
+# qvalue cutoff = 5.00e-02
+# The maximum gap between significant sites is assigned as the read length/tag size.
+# The minimum length of peaks is assigned as the predicted fragment length "d".
+# Larger dataset will be scaled towards smaller dataset.
+# Range for calculating regional lambda is: 10000 bps
+# Broad region calling is off
+# Paired-End mode is on
+ 
+INFO  @ Fri, 30 Jan 2026 17:44:46: #1 read fragment files... 
+INFO  @ Fri, 30 Jan 2026 17:44:46: #1 read treatment fragments... 
+INFO  @ Fri, 30 Jan 2026 17:44:50:  1000000 
+INFO  @ Fri, 30 Jan 2026 17:44:53:  2000000 
+INFO  @ Fri, 30 Jan 2026 17:44:57:  3000000 
+INFO  @ Fri, 30 Jan 2026 17:45:01:  4000000 
+INFO  @ Fri, 30 Jan 2026 17:45:05:  5000000 
+INFO  @ Fri, 30 Jan 2026 17:45:09:  6000000 
+INFO  @ Fri, 30 Jan 2026 17:45:13:  7000000 
+INFO  @ Fri, 30 Jan 2026 17:45:16:  8000000 
+INFO  @ Fri, 30 Jan 2026 17:45:20:  9000000 
+INFO  @ Fri, 30 Jan 2026 17:45:24:  10000000 
+INFO  @ Fri, 30 Jan 2026 17:45:28:  11000000 
+INFO  @ Fri, 30 Jan 2026 17:45:32:  12000000 
+INFO  @ Fri, 30 Jan 2026 17:45:36:  13000000 
+INFO  @ Fri, 30 Jan 2026 17:45:39:  14000000 
+INFO  @ Fri, 30 Jan 2026 17:45:42:  15000000 
+INFO  @ Fri, 30 Jan 2026 17:45:45:  16000000 
+INFO  @ Fri, 30 Jan 2026 17:45:48:  17000000 
+INFO  @ Fri, 30 Jan 2026 17:45:52:  18000000 
+INFO  @ Fri, 30 Jan 2026 17:45:52: 18192282 fragments have been read. 
+INFO  @ Fri, 30 Jan 2026 17:46:04: #1 mean fragment size is determined as 175.8 bp from treatment 
+INFO  @ Fri, 30 Jan 2026 17:46:04: #1 fragment size = 175.8 
+INFO  @ Fri, 30 Jan 2026 17:46:04: #1  total fragments in treatment: 18192282 
+INFO  @ Fri, 30 Jan 2026 17:46:04: #1 user defined the maximum fragments... 
+INFO  @ Fri, 30 Jan 2026 17:46:04: #1 filter out redundant fragments by allowing at most 1 identical fragment(s) 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #1  fragments after filtering in treatment: 13176769 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #1  Redundant rate of treatment: 0.28 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #1 finished! 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #2 Build Peak Model... 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #2 Skipped... 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #3 Call peaks... 
+INFO  @ Fri, 30 Jan 2026 17:46:27: #3 Pre-compute pvalue-qvalue table... 
+INFO  @ Fri, 30 Jan 2026 17:47:05: #3 Call peaks for each chromosome... 
+INFO  @ Fri, 30 Jan 2026 17:47:23: #4 Write output xls file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day12_2_peaks.xls 
+INFO  @ Fri, 30 Jan 2026 17:47:23: #4 Write peak in narrowPeak format file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day12_2_peaks.narrowPeak 
+INFO  @ Fri, 30 Jan 2026 17:47:23: #4 Write summits bed file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day12_2_summits.bed 
+INFO  @ Fri, 30 Jan 2026 17:47:23: Done! 
+[Fri Jan 30 17:47:23 2026]
+Finished job 0.
+1 of 1 steps (100%) done

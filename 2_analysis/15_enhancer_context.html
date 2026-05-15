@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-10-03" />
+<meta name="date" content="2026-02-24" />
 
 <title>Analysis of enhancer context</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">Analysis of enhancer context</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">October 03, 2025</h4>
+<h4 class="date">February 24, 2026</h4>
 
 </div>
 
@@ -1553,6 +1553,8 @@ marg.path&lt;-&#39;tsv/insilico/marginalizations/motifs/all_marginalizations.tsv
 atac_dinuc_marg.path&lt;-&#39;tsv/insilico/marginalizations/dinucleotides/marginalizations_atac_wt.tsv.gz&#39;
 bind_dinuc_marg.path&lt;-&#39;tsv/insilico/marginalizations/dinucleotides/marginalizations_bpnet_osknz.tsv.gz&#39;
 paired_perturbs.path&lt;-&#39;tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz&#39;
+
+motifs_w_alternate_perturbs.path&lt;-&#39;tsv/mapped_motifs/all_instances_curated_0based_w_alternate_perturb.tsv.gz&#39;
 
 enhancer_motifs.path&lt;-&#39;tsv/genomic/enhancers/enhancer_motifs.tsv.gz&#39;
 atac_contrib.path&lt;-&#39;shap/atac_wt_fold1_atac_counts.bw&#39;
@@ -2291,6 +2293,97 @@ motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;
 ## 1       -0.1771859     -0.1127491 0.009013241
 ## 2       -0.2695126     -0.2442612 0.360329084
 ## 3       -0.2772624     -0.2192724 0.102423115</code></pre>
+<div id="depict-for-alternate-models" class="section level3">
+<h3>Depict for alternate models</h3>
+<p>Subselect perturbation scores for the alternate models.</p>
+<pre class="r"><code>motifs_w_alternate_perturbs.df&lt;-readr::read_tsv(motifs_w_alternate_perturbs.path) %&gt;%
+  dplyr::mutate(
+    atac_wt_across_genome_perturb = log(`atac_wt_across_genome/atac/WT/pred_sum`) - log(`atac_wt_across_genome/atac/dA/pred_sum`),
+    atac_wt_across_acc_perturb = log(`atac_wt_across_acc/atac/WT/pred_sum`) - log(`atac_wt_across_acc/atac/dA/pred_sum`),
+    atac_wt_across_split_perturb = log(`atac_wt_across_split/atac/WT/pred_sum`) - log(`atac_wt_across_split/atac/dA/pred_sum`)
+  )</code></pre>
+<pre class="r"><code>#Secondary only
+df&lt;-lapply(c(&#39;atac_wt_across_genome&#39;, &#39;atac_wt_across_acc&#39;, &#39;atac_wt_across_split&#39;), function(x){
+  message(x)
+  
+  motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance, 
+                                        distance_from_pioneering_center_abs!=0) %&gt;%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %&gt;% dplyr::select(motif_id, !!sym(paste0(x, &#39;_perturb&#39;)))) %&gt;%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, &#39;_perturb&#39;))) %&gt;%
+    dplyr::group_by(motif) %&gt;%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;)) %&gt;% as.data.frame %&gt;%
+    dplyr::filter(motif %in% c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;, &#39;Nanog&#39;)) %&gt;% as.data.frame %&gt;% dplyr::mutate(model = x) %&gt;%
+    dplyr::mutate(motif = factor(motif, levels = c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;, &#39;Nanog&#39;))) %&gt;% dplyr::arrange(motif)
+}) %&gt;% rbindlist() 
+print(df)</code></pre>
+<pre><code>##        motif acc_vs_dist  acc_vs_pwm acc_vs_atac_max acc_vs_summit
+##       &lt;fctr&gt;       &lt;num&gt;       &lt;num&gt;           &lt;num&gt;         &lt;num&gt;
+## 1: Oct4-Sox2  -0.2771096  0.18051867     -0.32202667   -0.30792142
+## 2:      Sox2  -0.3508214  0.20175825     -0.35371375   -0.30072417
+## 3:     Nanog  -0.0904179 -0.07449374     -0.07231007   -0.09511591
+## 4: Oct4-Sox2  -0.2748046  0.12172386     -0.34232830   -0.29143063
+## 5:      Sox2  -0.2572948  0.14867683     -0.30838226   -0.23265998
+## 6:     Nanog  -0.1261582 -0.04685752     -0.13067098   -0.12978203
+## 7: Oct4-Sox2  -0.3282180  0.13559344     -0.35840005   -0.23423614
+## 8:      Sox2  -0.3216176  0.15765089     -0.32336111   -0.14380911
+## 9:     Nanog  -0.1276641 -0.03129434     -0.12778794   -0.13209817
+##                    model
+##                   &lt;char&gt;
+## 1: atac_wt_across_genome
+## 2: atac_wt_across_genome
+## 3: atac_wt_across_genome
+## 4:    atac_wt_across_acc
+## 5:    atac_wt_across_acc
+## 6:    atac_wt_across_acc
+## 7:  atac_wt_across_split
+## 8:  atac_wt_across_split
+## 9:  atac_wt_across_split</code></pre>
+<pre class="r"><code>readr::write_tsv(df, &#39;tsv/acc_vs_dist_secondary_alternate_models.tsv&#39;)
+
+#All motifs
+df&lt;-lapply(c(&#39;atac_wt_across_genome&#39;, &#39;atac_wt_across_acc&#39;, &#39;atac_wt_across_split&#39;), function(x){
+  message(x)
+  motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance) %&gt;%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %&gt;% dplyr::select(motif_id, !!sym(paste0(x, &#39;_perturb&#39;)))) %&gt;%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, &#39;_perturb&#39;))) %&gt;%
+    dplyr::group_by(motif) %&gt;%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;)) %&gt;% as.data.frame %&gt;%
+    dplyr::filter(motif %in% c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;, &#39;Nanog&#39;)) %&gt;% as.data.frame %&gt;% dplyr::mutate(model = x) %&gt;%
+    dplyr::mutate(motif = factor(motif, levels = c(&#39;Oct4-Sox2&#39;,&#39;Sox2&#39;, &#39;Nanog&#39;))) %&gt;% dplyr::arrange(motif)
+}) %&gt;% rbindlist()
+print(df)</code></pre>
+<pre><code>##        motif acc_vs_dist  acc_vs_pwm acc_vs_atac_max acc_vs_summit
+##       &lt;fctr&gt;       &lt;num&gt;       &lt;num&gt;           &lt;num&gt;         &lt;num&gt;
+## 1: Oct4-Sox2  -0.4118870  0.31870145     -0.34765007   -0.34528557
+## 2:      Sox2  -0.3730412  0.20764134     -0.34913971   -0.30211275
+## 3:     Nanog  -0.0904179 -0.07449374     -0.07231007   -0.09511591
+## 4: Oct4-Sox2  -0.3947880  0.25916512     -0.35436513   -0.32190835
+## 5:      Sox2  -0.3872225  0.17848793     -0.31466722   -0.22837598
+## 6:     Nanog  -0.1261582 -0.04685752     -0.13067098   -0.12978203
+## 7: Oct4-Sox2  -0.4982279  0.34976705     -0.38900284   -0.25919320
+## 8:      Sox2  -0.4456844  0.19039973     -0.33284291   -0.14582645
+## 9:     Nanog  -0.1276641 -0.03129434     -0.12778794   -0.13209817
+##                    model
+##                   &lt;char&gt;
+## 1: atac_wt_across_genome
+## 2: atac_wt_across_genome
+## 3: atac_wt_across_genome
+## 4:    atac_wt_across_acc
+## 5:    atac_wt_across_acc
+## 6:    atac_wt_across_acc
+## 7:  atac_wt_across_split
+## 8:  atac_wt_across_split
+## 9:  atac_wt_across_split</code></pre>
+<pre class="r"><code>readr::write_tsv(df, &#39;tsv/acc_vs_dist_all_alternate_models.tsv&#39;)</code></pre>
+</div>
 </div>
 <div id="show-sox2-correlations-at-specific-sequences" class="section level2">
 <h2>Show Sox2 correlations at specific sequences</h2>
@@ -2793,6 +2886,77 @@ motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;
 ##   bind_vs_dist bind_vs_atac_max bind_vs_summit bind_vs_pwm
 ## 1   -0.3064083       -0.4308968     -0.2297467          NA
 ## 2   -0.2868424       -0.2968257     -0.2477503          NA</code></pre>
+<div id="depict-for-alternate-models-1" class="section level3">
+<h3>Depict for alternate models</h3>
+<pre class="r"><code>#Secondary only
+df&lt;-lapply(c(&#39;atac_wt_across_genome&#39;, &#39;atac_wt_across_acc&#39;, &#39;atac_wt_across_split&#39;), function(x){
+  message(x)
+  
+  motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance, 
+                                        distance_from_pioneering_center_abs!=0, motif==&#39;Sox2&#39;, 
+                                      seq %in% c(motifs_w_centers.df %&gt;% dplyr::filter(region_id==curated_region_id, motif==&#39;Sox2&#39;) %&gt;% .$seq)) %&gt;%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %&gt;% dplyr::select(motif_id, !!sym(paste0(x, &#39;_perturb&#39;)))) %&gt;%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, &#39;_perturb&#39;))) %&gt;%
+    dplyr::group_by(motif, seq) %&gt;%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;), model = x) %&gt;% as.data.frame%&gt;% dplyr::arrange(desc(seq))
+}) %&gt;% rbindlist() 
+print(df)</code></pre>
+<pre><code>##     motif       seq acc_vs_dist acc_vs_pwm acc_vs_atac_max acc_vs_summit
+##    &lt;char&gt;    &lt;char&gt;       &lt;num&gt;      &lt;num&gt;           &lt;num&gt;         &lt;num&gt;
+## 1:   Sox2 GACAAAGGG  -0.4848638         NA      -0.4265460    -0.3296396
+## 2:   Sox2 GACAAAGAC  -0.3507735         NA      -0.3344089    -0.3703608
+## 3:   Sox2 GACAAAGGG  -0.4579075         NA      -0.4879295    -0.3193028
+## 4:   Sox2 GACAAAGAC  -0.2843612         NA      -0.2812837    -0.1650084
+## 5:   Sox2 GACAAAGGG  -0.4593968         NA      -0.5004897    -0.1592041
+## 6:   Sox2 GACAAAGAC  -0.4094995         NA      -0.3165675    -0.2184270
+##                    model
+##                   &lt;char&gt;
+## 1: atac_wt_across_genome
+## 2: atac_wt_across_genome
+## 3:    atac_wt_across_acc
+## 4:    atac_wt_across_acc
+## 5:  atac_wt_across_split
+## 6:  atac_wt_across_split</code></pre>
+<pre class="r"><code>readr::write_tsv(df, &#39;tsv/acc_vs_dist_secondary_akr1cl_alternate_models.tsv&#39;)
+
+#All motifs
+df&lt;-lapply(c(&#39;atac_wt_across_genome&#39;, &#39;atac_wt_across_acc&#39;, &#39;atac_wt_across_split&#39;), function(x){
+  message(x)
+  motifs_w_centers.df %&gt;% dplyr::filter(distance_from_pioneering_center_abs&lt;=max_distance,
+                                        motif==&#39;Sox2&#39;, 
+                                        seq %in% c(motifs_w_centers.df %&gt;% dplyr::filter(region_id==curated_region_id, motif==&#39;Sox2&#39;) %&gt;% .$seq)) %&gt;%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %&gt;% dplyr::select(motif_id, !!sym(paste0(x, &#39;_perturb&#39;)))) %&gt;%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, &#39;_perturb&#39;))) %&gt;%
+    dplyr::group_by(motif, seq) %&gt;%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = &#39;spearman&#39;), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = &#39;spearman&#39;), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = &#39;spearman&#39;), model = x) %&gt;% as.data.frame %&gt;% dplyr::arrange(desc(seq))
+}) %&gt;% rbindlist()
+print(df)</code></pre>
+<pre><code>##     motif       seq acc_vs_dist acc_vs_pwm acc_vs_atac_max acc_vs_summit
+##    &lt;char&gt;    &lt;char&gt;       &lt;num&gt;      &lt;num&gt;           &lt;num&gt;         &lt;num&gt;
+## 1:   Sox2 GACAAAGGG  -0.3905980         NA      -0.4107741    -0.2737749
+## 2:   Sox2 GACAAAGAC  -0.3532544         NA      -0.3348202    -0.3092724
+## 3:   Sox2 GACAAAGGG  -0.4313334         NA      -0.4600414    -0.3078994
+## 4:   Sox2 GACAAAGAC  -0.3244726         NA      -0.3205764    -0.2233823
+## 5:   Sox2 GACAAAGGG  -0.4502063         NA      -0.4410537    -0.1297678
+## 6:   Sox2 GACAAAGAC  -0.5304315         NA      -0.3893531    -0.2659407
+##                    model
+##                   &lt;char&gt;
+## 1: atac_wt_across_genome
+## 2: atac_wt_across_genome
+## 3:    atac_wt_across_acc
+## 4:    atac_wt_across_acc
+## 5:  atac_wt_across_split
+## 6:  atac_wt_across_split</code></pre>
+<pre class="r"><code>readr::write_tsv(df, &#39;tsv/acc_vs_dist_all_akr1cl_alternate_models.tsv&#39;)</code></pre>
+</div>
 </div>
 </div>
 <div id="session-information" class="section level1">

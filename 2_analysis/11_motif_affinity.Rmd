@@ -73,6 +73,9 @@ regions.path<-'tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.
 marg.path<-'tsv/insilico/marginalizations/motifs/all_marginalizations.tsv.gz'
 showcase.path<-'tsv/insilico/marginalizations/motifs/all_showcase_profiles.tsv.gz'
 
+motifs_w_alternate_perturbs.path<-'tsv/mapped_motifs/all_instances_curated_0based_w_alternate_perturb.tsv.gz'
+alternate_marg.path<-'tsv/insilico/marginalizations/motifs/all_alternate_marginalizations.tsv.gz'
+
 cov.bw.list<-list(zic3 = list(pos = 'bw/mesc_zic3_nexus_combined_normalized_positive.bw',
                               neg = 'bw/mesc_zic3_nexus_combined_normalized_negative.bw'),
                   oct4 = list(pos = 'bw/mesc_oct4_nexus_combined_normalized_positive.bw',
@@ -106,6 +109,37 @@ Join marginalization and perturbation scores with motifs.
 
 ```{r}
 motifs.df<-motifs.df %>% dplyr::left_join(marg.df) %>% as.data.frame
+```
+
+# Compare showcased levels of motifs
+
+Given different motifs and their injections into sequences in silico, do alternate models trained on different regions show differences in learning?
+
+```{r}
+levels.df<-rbind(
+  readr::read_tsv('tsv/insilico/marginalizations/motifs/all_showcase_profiles.tsv.gz') %>%
+    dplyr::filter(model_name == 'atac_wt', position > 250, position < 750, motif != 'Oct4 motif') %>%
+    dplyr::group_by(motif, model_name) %>%
+    dplyr::summarize(null_pred = sum(null_pred), inj_pred = sum(pred)),
+  readr::read_tsv('tsv/insilico/marginalizations/motifs/all_alternate_showcase_profiles.tsv.gz') %>%
+    dplyr::filter(position > 250, position < 750, motif != 'Oct4 motif') %>%
+    dplyr::group_by(motif, model_name) %>%
+    dplyr::summarize(null_pred = sum(null_pred), inj_pred = sum(pred))
+) %>% dplyr::mutate(marg_pred = log(inj_pred) - log(null_pred)) %>%
+  dplyr::mutate(motif = gsub(' motif', '', motif)) %>%
+  dplyr::mutate(motif = factor(motif, levels = c('Oct4-Sox2','Klf4','Sox2', 'Zic3','Nanog', 'Yy1', 'Hic1')),
+                model_name = factor(model_name, levels = c('atac_wt', 'atac_wt_across_acc', 'atac_wt_across_split', 'atac_wt_across_genome'),
+                                    labels = c('TF peaks', 'Acc peaks', 'Split regions', 'Genome-wide')))
+
+
+plot<-ggplot(levels.df, aes(x = motif, y = marg_pred, fill = model_name))+
+  geom_bar(stat = 'identity', position = 'dodge')+
+  scale_x_discrete('Injected motif')+
+  scale_y_continuous('Isolation score')+
+  scale_fill_manual(values = c('black', '#67001f', '#d6604d', '#fddbc7'), name = 'Model')+
+  theme_classic()
+ggsave(paste0(figure_filepath, '/showcased_marginalization_bar.png'), plot, height = 3, width = 5)
+ggsave(paste0(figure_filepath, '/showcased_marginalization_bar.pdf'), plot, height = 3, width = 5)
 ```
 
 # Compare binding and accessibility prediction scores
@@ -383,6 +417,8 @@ motif_id_to_klf4_enhancer.df<-data.frame(
 os_motifs_of_interest.df<-motifs.df %>% dplyr::filter(motif_id %in% motif_id_to_klf4_enhancer.df$motif_id) %>%
   dplyr::left_join(motif_id_to_klf4_enhancer.df)
 
+print(os_motifs_of_interest.df %>% dplyr::select(seq, enhancer, seq_match_quantile))
+
 os_motifs_of_interest.plot<-os_motifs_of_interest.df %>%
   dplyr::select(enhancer, bind_perturb, acc_perturb) %>%
   tidyr::pivot_longer(cols = c(bind_perturb, acc_perturb), names_to = 'model', values_to = 'perturb') %>%
@@ -392,7 +428,6 @@ ggsave(paste0(figure_filepath, '/motif_response_at_klf4_enhancers.png'), os_moti
 ggsave(paste0(figure_filepath, '/motif_response_at_klf4_enhancers.pdf'), os_motifs_of_interest.plot, height = 4, width = 8)
 
 ```
-
 
 # Calculate 3-way relationship between acc, bind, and affinity
 
@@ -423,6 +458,72 @@ affinity_corr.df<-motifs.df %>%
                    )
 affinity_corr.df
 readr::write_tsv(affinity_corr.df, 'tsv/affinity_vs_bind_vs_acc_cor.tsv')
+```
+
+## Calculate 3-way relationships for alternate models
+
+Given the correlations above in the featured model, how does this compare to the alternate models trained on different region sets?
+
+### Import alternate associated data
+
+```{r}
+motifs_w_alternate_perturbs.df<-readr::read_tsv(motifs_w_alternate_perturbs.path) 
+alternate_marg.df<-readr::read_tsv(alternate_marg.path)
+```
+
+Join marginalization and perturbation scores with motifs.
+
+```{r}
+motifs_w_alternate_perturbs.df<-motifs_w_alternate_perturbs.df %>% dplyr::left_join(alternate_marg.df) %>% as.data.frame
+```
+
+### Compare alternate binding and accessibility prediction scores
+
+Calculate alternate correlations.
+
+```{r}
+alternate_affinity_corr.df<-mclapply(c('atac_wt_across_genome', 'atac_wt_across_acc', 'atac_wt_across_split'), function(x){
+  message(x)
+  
+  #Get predictions
+  alternate_regions.df<-regions.df %>%
+    makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', starts.in.df.are.0based = T) %>%
+    plyranges::mutate(atac_pred = regionSums(., paste0('preds/', x, '_fold1_atac_cutsite_combined.bw'))) %>%
+    as.data.frame()
+  
+  m.df<-motifs_w_alternate_perturbs.df %>%
+    
+    makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', starts.in.df.are.0based = T) %>%
+    plyranges::mutate(atac_contrib = regionSums(., paste0('shap/', x, '_fold1_atac_counts_across_balanced.bw'))) %>%
+    as.data.frame %>%
+    
+    dplyr::mutate(atac_perturb = log(!!sym(paste0(x, '.atac.WT.pred_sum'))) - log(!!sym(paste0(x, '.atac.dA.pred_sum')))) %>%
+    dplyr::left_join(motifs.df %>% dplyr::select(motif_id, bind_marg, bind_perturb, bind_contrib, bind_pred)) %>%
+    dplyr::left_join(alternate_regions.df %>% dplyr::select(region_id, atac_pred)) %>%
+    
+    dplyr::group_by(motif) %>%
+    dplyr::mutate(motif = factor(motif, levels = names(motif_to_task.list))) %>%
+    dplyr::summarize(
+      
+      pred_atac_vs_seq_q = cor(atac_pred, seq_match_quantile, method = 'spearman'),
+      pred_bind_vs_pred_atac = cor(bind_pred, atac_pred, method = 'spearman'),
+      
+      
+      perturb_acc_vs_seq_q = cor(atac_perturb, seq_match_quantile, method = 'spearman'),
+      perturb_bind_vs_perturb_acc = cor(bind_perturb, atac_perturb, method = 'spearman'),
+      
+      marg_acc_vs_seq_q = cor(!!sym(paste0(x, '_marg')), seq_match_quantile, method = 'spearman'),
+      marg_bind_vs_marg_acc = cor(bind_marg, !!sym(paste0(x, '_marg')), method = 'spearman'),
+      
+      acc_contrib_vs_seq_q = cor(atac_contrib, seq_match_quantile, method = 'spearman'),
+      bind_contrib_vs_acc_contrib = cor(bind_contrib, atac_contrib, method = 'spearman')
+      ) %>%
+    dplyr::mutate(model = x)
+  return(m.df)
+}, mc.cores = 3) %>% rbindlist()
+
+alternate_affinity_corr.df
+readr::write_tsv(alternate_affinity_corr.df, 'tsv/affinity_vs_bind_vs_acc_alternate_cor.tsv')
 ```
 
 # Validate marginalization scores to in vitro PBMs

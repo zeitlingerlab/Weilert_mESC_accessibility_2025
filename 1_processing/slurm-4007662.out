@@ -1,0 +1,149 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 16
+Rules claiming more threads will be scaled down.
+Provided resources: mem_mb=500000, mem_mib=476838, disk_mb=500000, disk_mib=476838, cpus_per_task=16
+Select jobs to execute...
+
+[Fri Jan 30 17:40:04 2026]
+Job 0: Computing coverage of .bam file...
+Reason: Forced execution
+
+INFO	2026-01-30 17:40:05	MarkDuplicates	
+
+********** NOTE: Picard's command line syntax is changing.
+**********
+********** For more information, please see:
+********** https://github.com/broadinstitute/picard/wiki/Command-Line-Syntax-Transition-For-Users-(Pre-Transition)
+**********
+********** The command line looks like this in the new syntax:
+**********
+**********    MarkDuplicates -I /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam -O /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam.temp.bam -M /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.dedup.txt -ASSUME_SORT_ORDER coordinate -TMP_DIR /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/tmp/
+**********
+
+
+17:40:05.480 INFO  NativeLibraryLoader - Loading libgkl_compression.so from jar:file:/n/projects/mw2098/publications/2024_weilert_acc/public/software/picard/picard_v2.23.8.jar!/com/intel/gkl/native/libgkl_compression.so
+[Fri Jan 30 17:40:05 CST 2026] MarkDuplicates INPUT=[/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam] OUTPUT=/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam.temp.bam METRICS_FILE=/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.dedup.txt ASSUME_SORT_ORDER=coordinate TMP_DIR=[/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/tmp]    MAX_SEQUENCES_FOR_DISK_READ_ENDS_MAP=50000 MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=8000 SORTING_COLLECTION_SIZE_RATIO=0.25 TAG_DUPLICATE_SET_MEMBERS=false REMOVE_SEQUENCING_DUPLICATES=false TAGGING_POLICY=DontTag CLEAR_DT=true DUPLEX_UMI=false ADD_PG_TAG_TO_READS=true REMOVE_DUPLICATES=false ASSUME_SORTED=false DUPLICATE_SCORING_STRATEGY=SUM_OF_BASE_QUALITIES PROGRAM_RECORD_ID=MarkDuplicates PROGRAM_GROUP_NAME=MarkDuplicates READ_NAME_REGEX=<optimized capture of last three ':' separated fields as numeric values> OPTICAL_DUPLICATE_PIXEL_DISTANCE=100 MAX_OPTICAL_DUPLICATE_SET_SIZE=300000 VERBOSITY=INFO QUIET=false VALIDATION_STRINGENCY=STRICT COMPRESSION_LEVEL=5 MAX_RECORDS_IN_RAM=500000 CREATE_INDEX=false CREATE_MD5_FILE=false GA4GH_CLIENT_SECRETS=client_secrets.json USE_JDK_DEFLATER=false USE_JDK_INFLATER=false
+[Fri Jan 30 17:40:05 CST 2026] Executing as mw2098@cerebro114 on Linux 5.14.0-570.49.1.el9_6.x86_64 amd64; OpenJDK 64-Bit Server VM 17.0.16+8-LTS; Deflater: Intel; Inflater: Intel; Provider GCS is not available; Picard version: 2.23.8
+INFO	2026-01-30 17:40:05	MarkDuplicates	Start of doWork freeMemory: 263270272; totalMemory: 285212672; maxMemory: 32178700288
+INFO	2026-01-30 17:40:05	MarkDuplicates	Reading input file and constructing read end information.
+INFO	2026-01-30 17:40:05	MarkDuplicates	Will retain up to 116589493 data points before spilling to disk.
+WARNING: BAM index file /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam.bai is older than BAM /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam
+WARNING	2026-01-30 17:40:05	AbstractOpticalDuplicateFinderCommandLineProgram	A field field parsed out of a read name was expected to contain an integer and did not. Read name: ERR3453491.585103. Cause: String 'ERR3453491.585103' did not start with a parsable number.
+INFO	2026-01-30 17:40:09	MarkDuplicates	Read     1,000,000 records.  Elapsed time: 00:00:03s.  Time for last 1,000,000:    3s.  Last read position: chr1:24,614,030
+INFO	2026-01-30 17:40:09	MarkDuplicates	Tracking 19744 as yet unmatched pairs. 19744 records in RAM.
+INFO	2026-01-30 17:40:12	MarkDuplicates	Read     2,000,000 records.  Elapsed time: 00:00:06s.  Time for last 1,000,000:    3s.  Last read position: chr1:59,119,750
+INFO	2026-01-30 17:40:12	MarkDuplicates	Tracking 14 as yet unmatched pairs. 14 records in RAM.
+INFO	2026-01-30 17:40:15	MarkDuplicates	Read     3,000,000 records.  Elapsed time: 00:00:09s.  Time for last 1,000,000:    3s.  Last read position: chr1:176,217,158
+INFO	2026-01-30 17:40:15	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:40:18	MarkDuplicates	Read     4,000,000 records.  Elapsed time: 00:00:12s.  Time for last 1,000,000:    3s.  Last read position: chr10:89,744,826
+INFO	2026-01-30 17:40:18	MarkDuplicates	Tracking 4 as yet unmatched pairs. 4 records in RAM.
+INFO	2026-01-30 17:40:21	MarkDuplicates	Read     5,000,000 records.  Elapsed time: 00:00:15s.  Time for last 1,000,000:    3s.  Last read position: chr11:69,632,612
+INFO	2026-01-30 17:40:21	MarkDuplicates	Tracking 30 as yet unmatched pairs. 30 records in RAM.
+INFO	2026-01-30 17:40:24	MarkDuplicates	Read     6,000,000 records.  Elapsed time: 00:00:18s.  Time for last 1,000,000:    3s.  Last read position: chr12:29,517,480
+INFO	2026-01-30 17:40:24	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:40:27	MarkDuplicates	Read     7,000,000 records.  Elapsed time: 00:00:21s.  Time for last 1,000,000:    2s.  Last read position: chr13:22,849,834
+INFO	2026-01-30 17:40:27	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:40:30	MarkDuplicates	Read     8,000,000 records.  Elapsed time: 00:00:24s.  Time for last 1,000,000:    2s.  Last read position: chr14:19,415,823
+INFO	2026-01-30 17:40:30	MarkDuplicates	Tracking 4074 as yet unmatched pairs. 4074 records in RAM.
+INFO	2026-01-30 17:40:33	MarkDuplicates	Read     9,000,000 records.  Elapsed time: 00:00:27s.  Time for last 1,000,000:    2s.  Last read position: chr15:12,892,281
+INFO	2026-01-30 17:40:33	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:40:36	MarkDuplicates	Read    10,000,000 records.  Elapsed time: 00:00:30s.  Time for last 1,000,000:    3s.  Last read position: chr16:17,070,167
+INFO	2026-01-30 17:40:36	MarkDuplicates	Tracking 40 as yet unmatched pairs. 40 records in RAM.
+INFO	2026-01-30 17:40:39	MarkDuplicates	Read    11,000,000 records.  Elapsed time: 00:00:33s.  Time for last 1,000,000:    3s.  Last read position: chr17:31,266,161
+INFO	2026-01-30 17:40:39	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:40:42	MarkDuplicates	Read    12,000,000 records.  Elapsed time: 00:00:36s.  Time for last 1,000,000:    2s.  Last read position: chr18:29,909,719
+INFO	2026-01-30 17:40:42	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:40:45	MarkDuplicates	Read    13,000,000 records.  Elapsed time: 00:00:39s.  Time for last 1,000,000:    3s.  Last read position: chr19:46,148,291
+INFO	2026-01-30 17:40:45	MarkDuplicates	Tracking 28 as yet unmatched pairs. 28 records in RAM.
+INFO	2026-01-30 17:40:48	MarkDuplicates	Read    14,000,000 records.  Elapsed time: 00:00:42s.  Time for last 1,000,000:    2s.  Last read position: chr2:83,898,990
+INFO	2026-01-30 17:40:48	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:40:51	MarkDuplicates	Read    15,000,000 records.  Elapsed time: 00:00:45s.  Time for last 1,000,000:    2s.  Last read position: chr2:152,686,785
+INFO	2026-01-30 17:40:51	MarkDuplicates	Tracking 18 as yet unmatched pairs. 18 records in RAM.
+INFO	2026-01-30 17:40:54	MarkDuplicates	Read    16,000,000 records.  Elapsed time: 00:00:48s.  Time for last 1,000,000:    3s.  Last read position: chr3:89,215,157
+INFO	2026-01-30 17:40:54	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:40:57	MarkDuplicates	Read    17,000,000 records.  Elapsed time: 00:00:51s.  Time for last 1,000,000:    2s.  Last read position: chr4:49,700,127
+INFO	2026-01-30 17:40:57	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:41:00	MarkDuplicates	Read    18,000,000 records.  Elapsed time: 00:00:54s.  Time for last 1,000,000:    2s.  Last read position: chr4:149,988,932
+INFO	2026-01-30 17:41:00	MarkDuplicates	Tracking 2 as yet unmatched pairs. 2 records in RAM.
+INFO	2026-01-30 17:41:03	MarkDuplicates	Read    19,000,000 records.  Elapsed time: 00:00:57s.  Time for last 1,000,000:    3s.  Last read position: chr5:111,468,163
+INFO	2026-01-30 17:41:03	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:06	MarkDuplicates	Read    20,000,000 records.  Elapsed time: 00:01:00s.  Time for last 1,000,000:    3s.  Last read position: chr6:58,247,059
+INFO	2026-01-30 17:41:06	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:09	MarkDuplicates	Read    21,000,000 records.  Elapsed time: 00:01:03s.  Time for last 1,000,000:    2s.  Last read position: chr7:19,682,534
+INFO	2026-01-30 17:41:09	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:12	MarkDuplicates	Read    22,000,000 records.  Elapsed time: 00:01:06s.  Time for last 1,000,000:    3s.  Last read position: chr7:126,340,248
+INFO	2026-01-30 17:41:12	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:15	MarkDuplicates	Read    23,000,000 records.  Elapsed time: 00:01:09s.  Time for last 1,000,000:    3s.  Last read position: chr8:86,831,694
+INFO	2026-01-30 17:41:15	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:18	MarkDuplicates	Read    24,000,000 records.  Elapsed time: 00:01:12s.  Time for last 1,000,000:    3s.  Last read position: chr9:51,009,143
+INFO	2026-01-30 17:41:18	MarkDuplicates	Tracking 64 as yet unmatched pairs. 64 records in RAM.
+INFO	2026-01-30 17:41:21	MarkDuplicates	Read    25,000,000 records.  Elapsed time: 00:01:15s.  Time for last 1,000,000:    2s.  Last read position: chrM:278
+INFO	2026-01-30 17:41:21	MarkDuplicates	Tracking 19862 as yet unmatched pairs. 19862 records in RAM.
+INFO	2026-01-30 17:41:24	MarkDuplicates	Read    26,000,000 records.  Elapsed time: 00:01:18s.  Time for last 1,000,000:    2s.  Last read position: chrM:1,514
+INFO	2026-01-30 17:41:24	MarkDuplicates	Tracking 21264 as yet unmatched pairs. 21264 records in RAM.
+INFO	2026-01-30 17:41:26	MarkDuplicates	Read    27,000,000 records.  Elapsed time: 00:01:20s.  Time for last 1,000,000:    2s.  Last read position: chrM:2,763
+INFO	2026-01-30 17:41:26	MarkDuplicates	Tracking 20510 as yet unmatched pairs. 20510 records in RAM.
+INFO	2026-01-30 17:41:29	MarkDuplicates	Read    28,000,000 records.  Elapsed time: 00:01:23s.  Time for last 1,000,000:    2s.  Last read position: chrM:3,974
+INFO	2026-01-30 17:41:29	MarkDuplicates	Tracking 15868 as yet unmatched pairs. 15868 records in RAM.
+INFO	2026-01-30 17:41:32	MarkDuplicates	Read    29,000,000 records.  Elapsed time: 00:01:26s.  Time for last 1,000,000:    2s.  Last read position: chrM:5,310
+INFO	2026-01-30 17:41:32	MarkDuplicates	Tracking 40288 as yet unmatched pairs. 40288 records in RAM.
+INFO	2026-01-30 17:41:35	MarkDuplicates	Read    30,000,000 records.  Elapsed time: 00:01:29s.  Time for last 1,000,000:    2s.  Last read position: chrM:6,780
+INFO	2026-01-30 17:41:35	MarkDuplicates	Tracking 9902 as yet unmatched pairs. 9902 records in RAM.
+INFO	2026-01-30 17:41:38	MarkDuplicates	Read    31,000,000 records.  Elapsed time: 00:01:32s.  Time for last 1,000,000:    2s.  Last read position: chrM:9,401
+INFO	2026-01-30 17:41:38	MarkDuplicates	Tracking 22470 as yet unmatched pairs. 22470 records in RAM.
+INFO	2026-01-30 17:41:41	MarkDuplicates	Read    32,000,000 records.  Elapsed time: 00:01:35s.  Time for last 1,000,000:    2s.  Last read position: chrM:11,336
+INFO	2026-01-30 17:41:41	MarkDuplicates	Tracking 30610 as yet unmatched pairs. 30610 records in RAM.
+INFO	2026-01-30 17:41:43	MarkDuplicates	Read    33,000,000 records.  Elapsed time: 00:01:37s.  Time for last 1,000,000:    2s.  Last read position: chrM:12,577
+INFO	2026-01-30 17:41:43	MarkDuplicates	Tracking 25618 as yet unmatched pairs. 25618 records in RAM.
+INFO	2026-01-30 17:41:46	MarkDuplicates	Read    34,000,000 records.  Elapsed time: 00:01:40s.  Time for last 1,000,000:    2s.  Last read position: chrM:13,922
+INFO	2026-01-30 17:41:46	MarkDuplicates	Tracking 20074 as yet unmatched pairs. 20074 records in RAM.
+INFO	2026-01-30 17:41:49	MarkDuplicates	Read    35,000,000 records.  Elapsed time: 00:01:43s.  Time for last 1,000,000:    2s.  Last read position: chrM:15,210
+INFO	2026-01-30 17:41:49	MarkDuplicates	Tracking 32316 as yet unmatched pairs. 32316 records in RAM.
+INFO	2026-01-30 17:41:52	MarkDuplicates	Read    36,000,000 records.  Elapsed time: 00:01:46s.  Time for last 1,000,000:    2s.  Last read position: chrX:98,894,577
+INFO	2026-01-30 17:41:52	MarkDuplicates	Tracking 0 as yet unmatched pairs. 0 records in RAM.
+INFO	2026-01-30 17:41:54	MarkDuplicates	Read 36526026 records. 0 pairs never matched.
+INFO	2026-01-30 17:41:54	MarkDuplicates	After buildSortedReadEndLists freeMemory: 8969741392; totalMemory: 13891534848; maxMemory: 32178700288
+INFO	2026-01-30 17:41:54	MarkDuplicates	Will retain up to 1005584384 duplicate indices before spilling to disk.
+INFO	2026-01-30 17:41:56	MarkDuplicates	Traversing read pair information and detecting duplicates.
+INFO	2026-01-30 17:41:59	MarkDuplicates	Traversing fragment information and detecting duplicates.
+INFO	2026-01-30 17:42:00	MarkDuplicates	Sorting list of duplicate records.
+INFO	2026-01-30 17:42:01	MarkDuplicates	After generateDuplicateIndexes freeMemory: 13844391456; totalMemory: 21927821312; maxMemory: 32178700288
+INFO	2026-01-30 17:42:01	MarkDuplicates	Marking 12780232 records as duplicates.
+INFO	2026-01-30 17:42:01	MarkDuplicates	Found 0 optical duplicate clusters.
+WARNING: BAM index file /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam.bai is older than BAM /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam
+INFO	2026-01-30 17:42:01	MarkDuplicates	Reads are assumed to be ordered by: coordinate
+INFO	2026-01-30 17:43:06	MarkDuplicates	Written    10,000,000 records.  Elapsed time: 00:01:04s.  Time for last 10,000,000:   64s.  Last read position: chr16:17,070,167
+INFO	2026-01-30 17:44:11	MarkDuplicates	Written    20,000,000 records.  Elapsed time: 00:02:10s.  Time for last 10,000,000:   65s.  Last read position: chr6:58,247,059
+INFO	2026-01-30 17:45:09	MarkDuplicates	Written    30,000,000 records.  Elapsed time: 00:03:07s.  Time for last 10,000,000:   57s.  Last read position: chrM:6,780
+INFO	2026-01-30 17:45:43	MarkDuplicates	Writing complete. Closing input iterator.
+INFO	2026-01-30 17:45:43	MarkDuplicates	Duplicate Index cleanup.
+INFO	2026-01-30 17:45:43	MarkDuplicates	Getting Memory Stats.
+INFO	2026-01-30 17:45:43	MarkDuplicates	Before output close freeMemory: 757798240; totalMemory: 788529152; maxMemory: 32178700288
+INFO	2026-01-30 17:45:44	MarkDuplicates	Closed outputs. Getting more Memory Stats.
+INFO	2026-01-30 17:45:44	MarkDuplicates	After output close freeMemory: 309516584; totalMemory: 335544320; maxMemory: 32178700288
+[Fri Jan 30 17:45:44 CST 2026] picard.sam.markduplicates.MarkDuplicates done. Elapsed time: 5.65 minutes.
+Runtime.totalMemory()=335544320
+[] Reading paired-end ATAC-seq BAM: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam
+[] 11872897 fragments read. If deduplicate==T, then these are duplicates. If not, these are raw reads.
+Resolving dovetailed discordant reads, keeping discordants based on mapping distance (dovetailing) and removing discordants based on orientation.
+11872799 reads kept after discordant resolution.
+Filtering by fragment size. Max = 600, Min = 10
+[] 11872446 fragments within size restrictions.
+[] Saving 11872446 fragments...
+Saving .granges.rds file as: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/rdata/Bunina_mesc_atac_day4_2.granges.rds
+[1] TRUE
+Saving .bw file as: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/Bunina_mesc_atac_day4_2.bw
+Done! =)
+[] Reading paired-end ATAC-seq BAM: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day4_2.bam
+[] 11872897 fragments read. If deduplicate==T, then these are duplicates. If not, these are raw reads.
+Resolving dovetailed discordant reads, keeping discordants based on mapping distance (dovetailing) and removing discordants based on orientation.
+11872799 reads kept after discordant resolution.
+Filtering by fragment size. Max = 600, Min = 10
+[] 11872446 fragments within size restrictions.
+[] Saving 11872446 fragments...
+Saving .bw file as: /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bw/Bunina_mesc_atac_day4_2_cutsites.bw
+Done! =)
+[Fri Jan 30 17:52:34 2026]
+Finished job 0.
+1 of 1 steps (100%) done

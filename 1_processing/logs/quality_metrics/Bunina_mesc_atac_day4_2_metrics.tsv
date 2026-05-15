@@ -1,0 +1,2 @@
+sample_name	original_fastq_count	processed_fastq_count	unaligned_read_count	deduplicated_read_count	duplicated_read_count	uniqueness	genome_coverage	percent_sequenced
+Bunina_mesc_atac_day4_2	23630332	23630332	6835889	11872446	6390567	65	34.5	NA

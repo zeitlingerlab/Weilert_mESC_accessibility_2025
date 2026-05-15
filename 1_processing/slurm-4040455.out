@@ -1,0 +1,73 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 16
+Rules claiming more threads will be scaled down.
+Provided resources: mem_mb=500000, mem_mib=476838, disk_mb=500000, disk_mib=476838, cpus_per_task=16
+Select jobs to execute...
+
+[Fri Feb 13 12:47:50 2026]
+Job 0: Running MACS2...
+Reason: Forced execution
+
+INFO  @ Fri, 13 Feb 2026 12:47:51: 
+# Command line: callpeak -f BAMPE -t /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day0_2.bam --outdir /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks -n Bunina_mesc_atac_day0_2
+# ARGUMENTS LIST:
+# name = Bunina_mesc_atac_day0_2
+# format = BAMPE
+# ChIP-seq file = ['/n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/bam/Bunina_mesc_atac_day0_2.bam']
+# control file = None
+# effective genome size = 2.70e+09
+# band width = 300
+# model fold = [5, 50]
+# qvalue cutoff = 5.00e-02
+# The maximum gap between significant sites is assigned as the read length/tag size.
+# The minimum length of peaks is assigned as the predicted fragment length "d".
+# Larger dataset will be scaled towards smaller dataset.
+# Range for calculating regional lambda is: 10000 bps
+# Broad region calling is off
+# Paired-End mode is on
+ 
+INFO  @ Fri, 13 Feb 2026 12:47:51: #1 read fragment files... 
+INFO  @ Fri, 13 Feb 2026 12:47:51: #1 read treatment fragments... 
+INFO  @ Fri, 13 Feb 2026 12:47:53:  1000000 
+INFO  @ Fri, 13 Feb 2026 12:47:57:  2000000 
+INFO  @ Fri, 13 Feb 2026 12:48:00:  3000000 
+INFO  @ Fri, 13 Feb 2026 12:48:04:  4000000 
+INFO  @ Fri, 13 Feb 2026 12:48:08:  5000000 
+INFO  @ Fri, 13 Feb 2026 12:48:12:  6000000 
+INFO  @ Fri, 13 Feb 2026 12:48:16:  7000000 
+INFO  @ Fri, 13 Feb 2026 12:48:20:  8000000 
+INFO  @ Fri, 13 Feb 2026 12:48:23:  9000000 
+INFO  @ Fri, 13 Feb 2026 12:48:27:  10000000 
+INFO  @ Fri, 13 Feb 2026 12:48:31:  11000000 
+INFO  @ Fri, 13 Feb 2026 12:48:35:  12000000 
+INFO  @ Fri, 13 Feb 2026 12:48:39:  13000000 
+INFO  @ Fri, 13 Feb 2026 12:48:42:  14000000 
+INFO  @ Fri, 13 Feb 2026 12:48:45:  15000000 
+INFO  @ Fri, 13 Feb 2026 12:48:49:  16000000 
+INFO  @ Fri, 13 Feb 2026 12:48:52:  17000000 
+INFO  @ Fri, 13 Feb 2026 12:48:55:  18000000 
+INFO  @ Fri, 13 Feb 2026 12:48:58:  19000000 
+INFO  @ Fri, 13 Feb 2026 12:49:01:  20000000 
+INFO  @ Fri, 13 Feb 2026 12:49:05:  21000000 
+INFO  @ Fri, 13 Feb 2026 12:49:06: 21320442 fragments have been read. 
+INFO  @ Fri, 13 Feb 2026 12:49:20: #1 mean fragment size is determined as 161.1 bp from treatment 
+INFO  @ Fri, 13 Feb 2026 12:49:20: #1 fragment size = 161.1 
+INFO  @ Fri, 13 Feb 2026 12:49:20: #1  total fragments in treatment: 21320442 
+INFO  @ Fri, 13 Feb 2026 12:49:20: #1 user defined the maximum fragments... 
+INFO  @ Fri, 13 Feb 2026 12:49:20: #1 filter out redundant fragments by allowing at most 1 identical fragment(s) 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #1  fragments after filtering in treatment: 11856193 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #1  Redundant rate of treatment: 0.44 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #1 finished! 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #2 Build Peak Model... 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #2 Skipped... 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #3 Call peaks... 
+INFO  @ Fri, 13 Feb 2026 12:49:44: #3 Pre-compute pvalue-qvalue table... 
+INFO  @ Fri, 13 Feb 2026 12:50:19: #3 Call peaks for each chromosome... 
+INFO  @ Fri, 13 Feb 2026 12:50:36: #4 Write output xls file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day0_2_peaks.xls 
+INFO  @ Fri, 13 Feb 2026 12:50:36: #4 Write peak in narrowPeak format file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day0_2_peaks.narrowPeak 
+INFO  @ Fri, 13 Feb 2026 12:50:36: #4 Write summits bed file... /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/peaks/Bunina_mesc_atac_day0_2_summits.bed 
+INFO  @ Fri, 13 Feb 2026 12:50:36: Done! 
+[Fri Feb 13 12:50:36 2026]
+Finished job 0.
+1 of 1 steps (100%) done

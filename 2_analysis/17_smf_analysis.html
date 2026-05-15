@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-04-21" />
+<meta name="date" content="2026-03-18" />
 
 <title>Assess single molecule rates of occupancy</title>
 
@@ -1494,7 +1494,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">Assess single molecule rates of
 occupancy</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">April 21, 2025</h4>
+<h4 class="date">March 18, 2026</h4>
 
 </div>
 
@@ -1645,11 +1645,13 @@ smf_single_all.df$ov_motif %&gt;% table</code></pre>
 <pre class="r"><code>smf_single_all.df$ov_coop %&gt;% summary</code></pre>
 <pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA&#39;s 
 ##  -44.07    0.94    1.07    1.10    1.24   31.64   43076</code></pre>
+<pre class="r"><code>smf_single_all.df$has_Btbd11&lt;-overlapsAny(makeGRangesFromDataFrame(smf_single_all.df, keep.extra.columns = T), GRanges(&#39;chr10&#39;, IRanges(85538671, 85540703)))</code></pre>
 <p>Compare relationship between acc. and openness.</p>
 <pre class="r"><code>single_tf_p_vs_acc.plot&lt;-smf_single_all.df %&gt;% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = &#39;criteria&#39;, values_to = &#39;p_open&#39;) %&gt;%
   ggplot(., aes(x = p_open, y = log(acc_reads)))+
   ggrastr::geom_point_rast(color = &#39;gray&#39;, size = .1)+
   ggrastr::geom_point_rast(data = . %&gt;% dplyr::filter(!is.na(ov_coop)), color = &#39;black&#39;, size = .1)+
+  ggrastr::geom_point_rast(data = . %&gt;% dplyr::filter(has_Btbd11), color = &#39;red&#39;, size = 1)+
   ggpubr::stat_cor(method = &#39;spearman&#39;, label.x.npc = &#39;left&#39;, label.y.npc = &#39;top&#39;)+
   facet_grid(. ~ criteria)+
   ggtitle(&#39;TF Single SMF results&#39;, subtitle = &#39;p_open vs acc&#39;)+
@@ -1671,6 +1673,13 @@ single_tf_p_vs_coop.plot&lt;- smf_single_all.df %&gt;% tidyr::pivot_longer(cols 
 single_tf.plot&lt;-single_tf_p_vs_acc.plot + single_tf_p_vs_coop.plot + plot_layout(ncol = 1, heights = c(1, 3))
 ggsave(paste0(figure_filepath, &#39;/smf_single_tf_summary.png&#39;), single_tf.plot, height = 10, width = 8)
 ggsave(paste0(figure_filepath, &#39;/smf_single_tf_summary.pdf&#39;), single_tf.plot, height = 10, width = 8)</code></pre>
+<p>Report generalized summary statistics of openness at these
+regions.</p>
+<pre class="r"><code>smf_single_all.df$percent_open_published %&gt;% summary()</code></pre>
+<pre><code>##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA&#39;s 
+##   0.000   0.128   0.252   0.339   0.517   1.000   12903</code></pre>
+<pre class="r"><code>sd(smf_single_all.df$percent_open_published, na.rm = T)</code></pre>
+<pre><code>## [1] 0.2589757</code></pre>
 <p>Plot without log-space accessibility reads.</p>
 <pre class="r"><code>single_tf_p_vs_acc.plot&lt;-smf_single_all.df %&gt;% tidyr::pivot_longer(cols = c(percent_open_published, percent_open_strict), names_to = &#39;criteria&#39;, values_to = &#39;p_open&#39;) %&gt;%
   ggplot(., aes(x = p_open, y = acc_reads))+
@@ -1789,7 +1798,9 @@ smf_cluster_all.df&lt;-dplyr::left_join(smf_cluster_coords.df, smf_cluster_count
                     G = stringr::str_count(island_seq, &#39;G&#39;),
                     CpG = stringr::str_count(island_seq, &#39;CG&#39;),
                     CpG_ratio = round((CpG) / ((((C + G) / 2) ^ 2) / 1000), 2)) %&gt;%
-  as.data.frame()</code></pre>
+  as.data.frame()
+
+smf_cluster_all.df$has_Btbd11&lt;-overlapsAny(makeGRangesFromDataFrame(smf_cluster_all.df, keep.extra.columns = T), GRanges(&#39;chr10&#39;, IRanges(85538671, 85540703)))</code></pre>
 <p>Match motif information with the clustered SMF data.</p>
 <pre class="r"><code>#Find overlaps between SMF features and motifs
 cluster.ov&lt;-findOverlaps(motifs_w_coop.gr, makeGRangesFromDataFrame(smf_cluster_all.df, keep.extra.columns = T), ignore.strand = T)
@@ -1988,7 +1999,7 @@ information is printed below:</p>
 ## [19] Rsamtools_2.20.0                         
 ## [20] plyranges_1.24.0                         
 ## [21] reshape2_1.4.4                           
-## [22] ggplot2_3.5.1                            
+## [22] ggplot2_3.5.2                            
 ## [23] Biostrings_2.72.1                        
 ## [24] XVector_0.44.0                           
 ## [25] magrittr_2.0.3                           
@@ -2003,7 +2014,7 @@ information is printed below:</p>
 ##  [1] DBI_1.2.3                   bitops_1.0-9               
 ##  [3] gridExtra_2.3               rlang_1.1.4                
 ##  [5] matrixStats_1.5.0           compiler_4.4.1             
-##  [7] RSQLite_2.3.9               systemfonts_1.1.0          
+##  [7] RSQLite_2.3.9               systemfonts_1.2.3          
 ##  [9] png_0.1-8                   vctrs_0.6.5                
 ## [11] stringr_1.5.1               pkgconfig_2.0.3            
 ## [13] crayon_1.5.3                fastmap_1.2.0              

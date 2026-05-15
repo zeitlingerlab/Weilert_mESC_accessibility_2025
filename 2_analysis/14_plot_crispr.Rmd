@@ -48,11 +48,11 @@ source("scripts/r/caching.r")
 source("scripts/r/metapeak_functions.r")
 
 #Specific sources
+library(DESeq2)
 library(BSgenome.Mmusculus.UCSC.mm10)
 library(TxDb.Mmusculus.UCSC.mm10.knownGene)
 library(ggseqlogo)
 library(rhdf5)
-library(DESeq2)
 source("scripts/r/motif_functions.r")
 
 #Pre-existing variables
@@ -946,6 +946,61 @@ results.df<-perturbs.df %>%
 print(results.df)
 results.df %>% dplyr::select(model_name,task, AB_vs_A, log_AB_vs_A, AB_vs_B, log_AB_vs_B)
 ```
+
+## Examine low-affinity Sox2 motif
+
+The reviewer asks: "What happens if the low-affinity motif is deleted independently? How does accessibility change when the proximal or the low-affinity Sox2 motif are mutated in isolation, and is the sum of those less than the total accessibility measured in the native enhancer?"
+
+So we will explicitly visualize the low-affinity motif's effects on the Akr1cl enhancer. 
+
+```{r}
+#Isolate Akr1cl motifs
+akr1cl.gr<-GenomicRanges::resize(GRanges(scenarios.df$seqnames_distal, IRanges(scenarios.df$genomic_start_distal, scenarios.df$genomic_end_distal), strand = '*'), 1000, 'center')
+
+motifs.gr<-motifs.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end')
+akr1cl_motifs.gr<-subsetByOverlaps(motifs.gr, akr1cl.gr)
+akr1cl_motifs.gr
+
+#Isolate low-affinity Sox2
+la_sox2.gr<-motifs.gr %>% plyranges::filter(motif_id==253083)
+```
+
+
+Examine motif pairs and relative cooperativity
+
+```{r}
+#Isolate low-affinity Sox2 motif pairs
+pairs.df<-readr::read_tsv('tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz') 
+
+#Low-affinity Sox2 cooperativity
+pairs.df %>% plyranges::filter(`motif_id.x`==253083) %>%
+  dplyr::mutate(coop_acc = (`atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`)/(`atac_wt/atac/hB/pred_sum`+`atac_wt/atac/hA/pred_sum`-(2*`atac_wt/atac/null/pred_sum`)),
+                AB = `atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                A = `atac_wt/atac/hA/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                B = `atac_wt/atac/hB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                coop_acc_ln = log(coop_acc),
+                perturb_score = log(`atac_wt/atac/hAB/pred_sum`/`atac_wt/atac/hB/pred_sum`)) %>%
+  as.data.frame() %>%
+  dplyr::select(`pattern_name_unique.x`, `pattern_name_unique.y`, AB, A, B, coop_acc, `coop_acc_ln`, perturb_score, `atac_wt/atac/hAB/pred_sum`, `atac_wt/atac/hA/pred_sum`)
+
+#Proximal Sox2 cooperativity
+pairs.df %>% plyranges::filter(`motif_id.x`==253084) %>%
+  dplyr::mutate(coop_acc = (`atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`)/(`atac_wt/atac/hB/pred_sum`+`atac_wt/atac/hA/pred_sum`-(2*`atac_wt/atac/null/pred_sum`)),
+                 AB = `atac_wt/atac/hAB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                A = `atac_wt/atac/hA/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                B = `atac_wt/atac/hB/pred_sum`-`atac_wt/atac/null/pred_sum`,
+                coop_acc_ln = log(coop_acc),
+                perturb_score = log(`atac_wt/atac/hAB/pred_sum`/`atac_wt/atac/hB/pred_sum`)) %>%
+  as.data.frame() %>%
+  dplyr::select(`pattern_name_unique.x`, `pattern_name_unique.y`, AB, A, B,coop_acc, `coop_acc_ln`, perturb_score, `atac_wt/atac/hAB/pred_sum`, `atac_wt/atac/hA/pred_sum`)
+```
+
+
+```{r}
+```
+
+
+
 
 ## Report summary differences
 

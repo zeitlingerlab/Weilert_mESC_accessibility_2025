@@ -1,0 +1,12 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 16
+Rules claiming more threads will be scaled down.
+Provided resources: mem_mb=500000, mem_mib=476838, disk_mb=500000, disk_mib=476838, cpus_per_task=16
+Select jobs to execute...
+
+[Fri Feb 13 12:45:43 2026]
+Job 0: Processing FASTQ
+Reason: Forced execution
+
+[2026-02-13T12:46:32.423] error: *** JOB 4040432 ON cerebro202 CANCELLED AT 2026-02-13T12:46:32 DUE to SIGNAL Terminated ***

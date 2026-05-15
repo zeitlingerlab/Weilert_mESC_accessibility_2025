@@ -1,0 +1,883 @@
+---
+title: 'Cooperativity of accessibility only motifs'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The goal of this analysis is to assess cooperativity at the level of directional, additive, and multiplicative relationships between both binding and accessibility. We will be testing this over an unopened and preopened state in silico. We will also be testing this pairwise cooperativity based on the genomic perturbations (based on motif pairs existing in the mapped hits). 
+
+This is a modified approach that considers motifs only mapped by the accessibility model.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(parallel)
+library(dplyr); library(data.table); library(patchwork); library(readr);
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2024_weilert_acc/code/2_analysis/")
+figure_filepath<-"figures/12a_acc_only_cooperativity"
+options(knitr.figure_dir=figure_filepath, java.parameters = "- Xmx6g")
+
+dir.create(paste0(figure_filepath, '/affinity_cooperativity'), recursive = T, showWarnings = F)
+
+#Lab sources
+source("scripts/r/granges_common.r")
+source("scripts/r/metapeak_common.r")
+source("scripts/r/knitr_common.r")
+source("scripts/r/caching.r")
+source("scripts/r/metapeak_functions.r")
+
+#Specific sources
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TxDb.Mmusculus.UCSC.mm10.ensGene)
+library(ggseqlogo)
+source("scripts/r/motif_functions.r")
+
+#Pre-existing variables
+threads <- 5
+bsgenome<-BSgenome.Mmusculus.UCSC.mm10
+txdb<-TxDb.Mmusculus.UCSC.mm10.ensGene
+
+genomic_motifs.path<-'tsv/genomic/motifs/accessibility_instances_formatted_for_genomic_perturbations_0based.tsv.gz'
+motif_perturbs.path<-'tsv/mapped_motifs/all_accessibility_instances_curated_0based_w_perturb.tsv.gz'
+paired_perturbs.path<-'tsv/genomic/all_accessibility_pairs_curated_0based_w_perturb.tsv.gz'
+region.path<-'tsv/genomic/motifs/accessibility_regions_formatted_for_genomic_perturbations_0based.tsv.gz'
+models_of_interest<-c('atac_wt')
+models.list<-list(bpnet_osknz = c('oct4','sox2','nanog','klf4','zic3'),
+                  atac_wt = c('atac'),
+                  atac_0h = c('atac'),
+                  atac_3h = c('atac'),
+                  atac_6h = c('atac'),
+                  atac_9h = c('atac'),
+                  atac_12h = c('atac'),
+                  atac_15h = c('atac'))
+
+distance_class_breaks<-c(0, 70, 180, 1000)
+distance_class_labels<-c('protein-range', 'nucleosome-range', 'enhancer-range')
+count_threshold<-20 #minimum frequency of grouped regions to compute median values
+
+input_length<-2032
+output_length<-1000
+flank<-(input_length - output_length)/2
+```
+
+As mentioned in `10_*`, we did not consider Oct4 only motif in cooperative motif pairs because of its ERV-heavy enrichment and lack of enough instances to impute a generalized syntax of accessibility or binding.
+
+# Assess perturb (context) cooperativity
+
+Given predicted mutations of in vivo motifs, do we observe cooperativity?
+
+## Import cooperativity predictions
+
+Import all general regions
+
+```{r}
+regions.df<-readr::read_tsv(region.path)
+```
+
+Read in paired perturbations and process.
+
+```{r}
+all_perturbs.df<-readr::read_tsv(paired_perturbs.path) %>%
+  dplyr::mutate(motif_pair_distance = abs(pattern_center.y - pattern_center.x)) %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(motif_pair_ordered = paste(sort(c(motif.x, motif.y)), collapse = " vs "),
+                motif_pair_blind = paste0(motif.x, ' vs ', motif.y)) %>% 
+  #Remove directionality from pairs by removing one of A->B and B->A pairs
+  # dplyr::filter(motif_pair_ordered==motif_pair_blind) %>% 
+  dplyr::ungroup()
+
+# assert('Redundancies in motif pairs are still present', length(unique(all_perturbs.df %>% dplyr::filter(motif_pair_ordered == 'Klf4 vs Sox2') %>% .$motif.x %>% table))==1)
+```
+
+Collect perturbations and metadata of interest.
+
+```{r}
+perturbs.df<-mclapply(models_of_interest, function(x){
+  p.df<-lapply(models.list[[x]], function(task){
+    all_perturbs.df %>% 
+      dplyr::select(region_id, pair_name, pair_id, motif_pair_ordered, motif_pair_blind, motif_pair_distance, seq.x, seq.y,
+                    motif.x, motif.y, motif_id.x, motif_id.y, seq_match_quantile.x, seq_match_quantile.y,
+                    hAB_sum = !!sym(paste0(x, '/', task, '/hAB/pred_sum')),
+                    hB_sum = !!sym(paste0(x, '/', task, '/hB/pred_sum')),
+                    hA_sum = !!sym(paste0(x, '/', task, '/hA/pred_sum')),
+                    null_sum = !!sym(paste0(x, '/', task, '/null/pred_sum'))) %>%
+      dplyr::mutate(model_name = x,
+                    task = task,
+                    distance_class = cut(motif_pair_distance, 
+                                         breaks = distance_class_breaks, 
+                                         labels = distance_class_labels, 
+                                         include.lowest = T),
+                    add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+                    dir_coop = (hAB_sum - (hB_sum - null_sum))/(hA_sum),
+                    mult_coop = log(hAB_sum/null_sum)/log((hA_sum*hB_sum)/(null_sum*null_sum)),
+                    joint_effects = hAB_sum - null_sum,
+                    marginal_effects = hA_sum + hB_sum - 2*null_sum,
+                    A_effects = hA_sum - null_sum,
+                    B_effects = hB_sum - null_sum)
+  }) %>% rbindlist(.)
+}, mc.cores = 6) %>% rbindlist(.)
+```
+
+Annotate whether perturbation happens across TSSs. Many of the accessibility only motifs are affiliated with promoter architecture and thus might operate differently based on cooperativity rules. 
+
+```{r}
+regions.df<-regions.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T) %>% 
+  plyranges::mutate(near_tss = ifelse(overlapsAny(., GenomicRanges::resize(GenomicRanges::resize(genes(txdb), 1, 'start'), 2000, 'center'), ignore.strand = T), 'neartss', 'distal')) %>%
+  as.data.frame()
+
+perturbs.df<-perturbs.df %>% dplyr::left_join(regions.df %>% dplyr::select(region_id, near_tss))
+```
+
+## Determine motif pair order
+
+```{r}
+motif_pair_blind_order<-perturbs.df %>% 
+  dplyr::group_by(motif_pair_blind) %>% 
+  dplyr::filter(motif_pair_distance <= 300, motif_pair_distance >=30, task == 'atac', near_tss=='distal') %>%
+  dplyr::summarize(y = median(add_coop)) %>% 
+  dplyr::arrange(y) %>% .$motif_pair_blind %>% unique
+
+motif_pair_ordered_order<-perturbs.df %>% 
+  dplyr::group_by(motif_pair_ordered) %>% 
+  dplyr::filter(motif_pair_distance <= 300, motif_pair_distance >=30, task == 'atac', near_tss=='distal') %>%
+  dplyr::summarize(y = median(add_coop)) %>% 
+  dplyr::arrange(y) %>% .$motif_pair_ordered  %>% unique
+```
+
+## Devise significance test
+
+So now we are in a tricky pickle. If we say cooperativity is when joint>marginal, then does this mean even 1% increase is cooperative? Standing on business, yes? But can we make a significance test to say "given a set of certain motif groups, are these more cooperative than the null expectation of no cooperativity?". Now, "null expectation of no cooperativity" is hard because we don't necessarily have replicates. 
+
+So we are going to declare to the world the following criteria:
+
+1. We see that our model ALWAYS loves to have more motifs (i.e. higher accessibility in the presence of motif sequences), thus the wilcox.test from Kim 2021 is overly promiscuous and untailing it to be a population treatment is technically statistically inaccurate. This raises a deeper question about whether statistics on model predictions (which are deterministic inherently) are even relevant. But we want a way of saying "given cooperativity compared to a situation where cooperativity should not exist, which cooperativity is statistically significant?"
+2. Thus, we decided that our null distribution is the cooperativity scores of motif pairs when they are DEFINITELY not arranged in a pioneering capacity (>300bp) compared to the cooperativity scores of motif pairs when they ARE possibly cooperatively arranged.
+3. Thus thus, our proposed statistical test is Wilcoxson rank rums of the cooperative scores (not comparing joint>marginal in paired capacity) that are at specific distance bins or motif pair groups, relative to how theyre cooperative in nonpioneering arrangements. 
+
+### By motif pair
+
+For individual motif pairs
+
+```{r}
+distance_feature<-400
+
+perturbs_classed.df<-perturbs.df %>% dplyr::filter(task=='atac', motif_pair_distance >=30)  %>%
+  dplyr::mutate(motif_pair_bin = ifelse(motif_pair_distance>=distance_feature, 'long', paste0(motif_pair_ordered, '_', near_tss))) %>%
+  dplyr::mutate(motif_pair_bin = factor(motif_pair_bin, c('long', paste0(motif_pair_ordered_order, '_neartss'), paste0(motif_pair_ordered_order, '_distal')))) %>%
+  dplyr::arrange(motif_pair_bin) %>%
+  dplyr::filter(!is.na(log(add_coop)))
+
+paired.wilcox.test<-pairwise.wilcox.test(x = log(perturbs_classed.df$add_coop), g = perturbs_classed.df$motif_pair_bin, p.adjust.method = "bonf", alternative = 'greater')
+
+padj.df<-data.frame(padj_to_long = paired.wilcox.test$p.value[,'long'])
+padj.df$motif_pair_bin<-rownames(padj.df)
+
+
+wilcox_across_pair.df<-padj.df %>% arrange(padj_to_long) %>%
+  dplyr::mutate(sig = cut(padj_to_long, breaks = c(0, 1e-7, 1), labels = c('*', ''),
+                          include.lowest = T, right = T)) %>%
+  dplyr::select(-padj_to_long) %>%
+  tidyr::separate(motif_pair_bin, into = c('motif_pair_ordered', 'near_tss'), sep = '_') %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, motif_pair_ordered_order)) %>%
+  dplyr::arrange(desc(motif_pair_ordered))
+wilcox_across_pair.df
+```
+
+Not everything is significant. This makes sense as many of the interactions are low-frequency and across TSSs, which are dictated by a different landscape of features. 
+
+## Summarize cooperativity 
+
+### Median cooperativity by motif pair
+
+Plot the median cooperativity by motif pair
+
+```{r}
+summarize_all.plot<-perturbs.df %>%
+  dplyr::filter(task=='atac', motif_pair_distance <=300, motif_pair_distance >=30) %>%
+  dplyr::group_by(motif_pair_ordered, near_tss) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  dplyr::left_join(wilcox_across_pair.df) %>%
+  ggplot(., aes(x = motif_pair_ordered, y = log(median_add_coop), fill = log(median_add_coop)))+
+  # geom_tile()+
+  geom_bar(stat = 'identity', position = 'dodge', color = 'black')+
+  geom_text(aes(y = (-.1), x = motif_pair_ordered, label = sig))+
+  scale_x_discrete(name = 'Motif pair') + 
+  scale_y_continuous(name = 'log(coop)') +
+  coord_flip()+
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop (log)')+
+  facet_grid(~near_tss)+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_accessibility_only_motifs_medians.png'), summarize_all.plot, height = 10, width = 12)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_accessibility_only_motifs_medians.pdf'), summarize_all.plot, height = 10, width = 12)
+```
+
+Plot the median cooperativity by motif pair without TSSs
+
+```{r}
+summarize_all.plot<-perturbs.df %>%
+  dplyr::filter(task=='atac', motif_pair_distance <=300, motif_pair_distance >=30, near_tss=='distal') %>%
+  dplyr::group_by(motif_pair_ordered) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  dplyr::left_join(wilcox_across_pair.df) %>%
+  ggplot(., aes(x = motif_pair_ordered, y = log(median_add_coop), fill = log(median_add_coop)))+
+  # geom_tile()+
+  geom_bar(stat = 'identity', position = 'dodge', color = 'black')+
+  geom_text(aes(y = (-.1), x = motif_pair_ordered, label = sig))+
+  scale_x_discrete(name = 'Motif pair') + 
+  scale_y_continuous(name = 'log(coop)') +
+  coord_flip()+
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop (log)')+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_accessibility_only_motifs_medians_distal.png'), summarize_all.plot, height = 10, width = 6)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_accessibility_only_motifs_medians_distal.pdf'), summarize_all.plot, height = 10, width = 6)
+```
+
+## Assess impact of affinity over distance on cooperativity
+
+First, create summary groups and information by which to consolidate data.
+
+```{r}
+perturbs.df<-perturbs.df %>% as.data.frame %>%
+  dplyr::filter(!is.na(distance_class)) %>%
+  dplyr::mutate(distance_bin_narrow = plyr::round_any(motif_pair_distance, 5, ceiling),
+                distance_bin_medium = plyr::round_any(motif_pair_distance, 10, ceiling),
+                distance_bin_wide = plyr::round_any(motif_pair_distance, 20, ceiling),
+                ic_match_q_A = ifelse(`motif.x`==stringr::str_split(string = motif_pair_ordered, pattern = ' vs ', n = 1),
+                                      `seq_match_quantile.x`, `seq_match_quantile.y`),
+                ic_match_q_B = ifelse(`motif.x`==stringr::str_split(string = motif_pair_ordered, pattern = ' vs ', n = 1),
+                                      `seq_match_quantile.y`, `seq_match_quantile.x`),
+                motifA_ic_match_q_bin = plyr::round_any(ic_match_q_A, .25, ceiling),
+                motifB_ic_match_q_bin = plyr::round_any(ic_match_q_B, .25, ceiling),
+                affinity_bin = paste0(motifA_ic_match_q_bin, ' vs ', motifB_ic_match_q_bin))
+```
+
+Next assess impact of different metrics for each motif pair involving CTCF as per reviewer request.
+
+```{r}
+genomic_affinity_summary.df<-perturbs.df %>%  
+  dplyr::filter(motif.x=='Ctcf') %>%
+  dplyr::mutate(motifA_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_A, .25, ceiling),
+                motifB_ic_match_q_bin_narrow = plyr::round_any(ic_match_q_B, .25, ceiling)) %>%
+  dplyr::group_by(motif_pair_ordered, motifB_ic_match_q_bin_narrow, distance_bin_medium, model_name, near_tss) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   count = dplyr::n()) %>%
+  dplyr::filter(count>=count_threshold)
+
+
+summarize_ctcf.plot<-perturbs.df %>%
+  dplyr::filter(task=='atac', motif_pair_distance <=300, motif_pair_distance >=30, motif.x=='Ctcf') %>%
+  dplyr::mutate(
+    # motifA_ic_match_q_bin_narrow = as.character(plyr::round_any(ic_match_q_A, .25, ceiling)),
+                motifB_ic_match_q_bin_narrow = as.character(plyr::round_any(ic_match_q_B, .25, ceiling))) %>%
+  dplyr::group_by(motif_pair_ordered, near_tss, motifB_ic_match_q_bin_narrow) %>%
+  dplyr::summarize(median_add_coop = median(add_coop),
+                   count = dplyr::n()/2) %>%
+  dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %>%
+  as.data.frame %>%
+  dplyr::filter(count>=count_threshold) %>%
+  # dplyr::left_join(wilcox_across_pair.df) %>%
+  ggplot(., aes(y = motif_pair_ordered, x = motifB_ic_match_q_bin_narrow, fill = log(median_add_coop)))+
+  # geom_tile()+
+  geom_tile(color = 'black')+
+  # geom_text(aes(y = (-.1), x = motif_pair_ordered, label = sig))+
+  scale_x_discrete(name = 'Motif pair') + 
+  scale_y_discrete(name = 'log(coop)') +
+  scale_fill_gradient2(high = '#b2182b', mid = 'white', low = '#2166ac', midpoint = 0, name = 'Coop (log)')+
+  facet_grid(.~near_tss)+
+  theme_classic()
+
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_ctcf_motifs_medians.png'), summarize_ctcf.plot, height = 4, width = 6)
+ggsave(paste0(figure_filepath, '/genomic_coop_summary_ctcf_motifs_medians.pdf'), summarize_ctcf.plot, height = 4, width = 6)
+
+
+```
+
+# Allocation of cooperativity to in vivo perturbations
+
+As per a reviewer comment, given one motif in vivo we want to assess the effect of all other pioneer motifs on it. To do this, we leveraged a perturbation strategy that mutated all motifs and all motifs less one from an enhancer to fill out the perturbation landscape. It is too complex and beyond the scope of the paper to do higher-order interactions (3-way, 4-way, 5-way), and we suspect that the model would be too underlearned to interpret these reliably. Thus, this is our approach for answering the reviewer's question.
+
+```{r}
+instances_w_island_mutations.df<-readr::read_tsv('tsv/mapped_motifs/all_accessibility_instances_curated_0based_w_island_mutations.tsv.gz') %>% as.data.frame()
+```
+
+Given these different paradigms, how much is cooperativity factoring into the total accessibility allocated?
+
+```{r}
+#Filter out any islands containing repressive examples to simplify analysis
+complex_islands_blacklist.vec<-instances_w_island_mutations.df %>% plyranges::filter(`atac_wt/atac/dA/pred_sum` > `atac_wt/atac/WT/pred_sum`) %>% .$region_id
+
+cooperative_motifs_at_islands.df<-instances_w_island_mutations.df %>%
+  dplyr::filter(island_count>1, !(region_id %in% complex_islands_blacklist.vec)) %>%
+  dplyr::mutate(
+    reads_CpG = `atac_wt/atac/d0/pred_sum`,
+    reads_query_motif = `atac_wt/atac/d1/pred_sum` - `atac_wt/atac/d0/pred_sum`,
+    
+    perc_CpG = `atac_wt/atac/d0/pred_sum`/`atac_wt/atac/WT/pred_sum`, #rate of all motifs gone
+    perc_query_motif = (`atac_wt/atac/d1/pred_sum` - `atac_wt/atac/d0/pred_sum`)/`atac_wt/atac/WT/pred_sum`
+  ) #rate of only one motif present
+
+cooperative_islands.df<-cooperative_motifs_at_islands.df %>% 
+  dplyr::group_by(region_id) %>%
+  dplyr::summarize(
+    reads_WT = unique(`atac_wt/atac/WT/pred_sum`),
+    reads_CpG = unique(reads_CpG),
+    reads_total_d1 = sum(reads_query_motif),
+    reads_remainder = reads_WT - reads_total_d1 - reads_CpG,
+
+    perc_CpG = unique(perc_CpG),
+    perc_total_d1 = sum(perc_query_motif), #total effect of only one motif present, added together
+    perc_remainder = 1 - perc_CpG - perc_total_d1,
+    
+    island_count = unique(island_count))
+```
+
+Across islands, how do the ratios and absolute levels change?
+
+```{r}
+
+#How much is median effects?
+cooperative_islands.df %>% 
+  dplyr::select(reads_remainder, reads_CpG, reads_total_d1, island_count) %>%
+  tidyr::pivot_longer(cols = c(reads_remainder, reads_CpG, reads_total_d1), names_to = 'component', values_to = 'reads') %>%
+  dplyr::group_by(component) %>%
+  dplyr::summarize(med_reads = median(reads), freq = dplyr::n()) %>%
+  dplyr::mutate(perc_reads = med_reads / sum(med_reads))
+
+
+island_summary.df<-cooperative_islands.df %>% 
+  dplyr::select(reads_remainder, reads_CpG, reads_total_d1, island_count) %>%
+  tidyr::pivot_longer(cols = c(reads_remainder, reads_CpG, reads_total_d1), names_to = 'component', values_to = 'reads') %>%
+  dplyr::group_by(component, island_count) %>%
+  dplyr::summarize(med_reads = median(reads), freq = dplyr::n()) %>%
+  dplyr::mutate(component = factor(component, levels = rev(c('reads_CpG', 'reads_total_d1', 'reads_remainder')), labels = rev(c('d0_effects', 'd1_effects', 'remainder_effects')))) %>%
+  dplyr::filter(freq>10) 
+
+abs_med_reads_by_island_count.plot<-ggplot(island_summary.df, aes(x = island_count, y = med_reads, fill = component, group = interaction(component, island_count)))+
+  geom_bar(position = 'stack', stat = 'identity')+
+  scale_x_continuous(breaks = seq(2, 10, 2), name = 'Pioneer motifs per island')+
+  scale_y_continuous(name = 'Med. predicted reads')+
+  theme_classic()
+
+#Depict it differently
+abs_med_reads_by_component_count.plot<-island_summary.df %>%
+  dplyr::mutate(component = factor(component, levels = c('d0_effects', 'd1_effects', 'remainder_effects'))) %>%
+  ggplot(., aes(x = island_count, y = med_reads, fill = component, alpha = island_count))+
+  geom_bar(position = 'dodge', stat = 'identity', color = 'black', linewidth = 1)+
+  scale_x_continuous(breaks = seq(2, 10, 2), name = 'Pioneer motifs per island')+
+  scale_y_continuous(name = 'Med. predicted reads')+
+  scale_fill_manual(values = c('black', 'navy', 'darkred'))+
+  facet_grid(~component)+
+  theme_classic() + theme(legend.position = 'none')
+
+rel_med_reads_by_island_count.plot<-island_summary.df %>%
+  dplyr::group_by(island_count) %>%
+  dplyr::mutate(med_perc = med_reads/sum(med_reads)) %>%
+  ggplot(., aes(x = island_count, y = med_perc, fill = component, group = interaction(component, island_count)))+
+  geom_bar(position = 'stack', stat = 'identity')+
+  scale_x_continuous(breaks = seq(2, 10, 2), name = 'Pioneer motifs per island')+
+  scale_y_continuous(name = 'Med. rates of effect')+
+  theme_classic()
+
+allocation_of_effect.plot<-abs_med_reads_by_component_count.plot + abs_med_reads_by_island_count.plot + rel_med_reads_by_island_count.plot + plot_layout(ncol = 1)
+ggsave(paste0(figure_filepath, '/allocation_of_cooperativity.png'), allocation_of_effect.plot, height = 8, width = 8)
+ggsave(paste0(figure_filepath, '/allocation_of_cooperativity.pdf'), allocation_of_effect.plot, height = 8, width = 8)
+```
+
+# Assess effects of Oct4-only motif as a pioneer
+
+Collect marginalization scores.
+
+```{r}
+marg.df<-readr::read_tsv('tsv/insilico/marginalizations/motifs/accessibility_marginalizations_atac_wt.tsv.gz') %>%
+  dplyr::select(-c(motifA, seqB, motifB, state)) %>% dplyr::rename(seq = seqA) %>%
+  dplyr::mutate(null = readr::read_tsv('tsv/insilico/marginalizations/motifs/accessibility_marginalizations_atac_wt.tsv.gz') %>% dplyr::filter(state=='null') %>% .$atac,
+                atac_wt_marg = atac-null)
+
+i_w_marg.df<-instances_w_island_mutations.df %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::mutate(seq = getSeq(bsgenome, ., as.character = T)) %>%
+  as.data.frame() %>%
+  dplyr::left_join(., marg.df)
+
+showcase_motifs.vec<-c('Oct4-Sox2','Sox2','Klf4','Oct4')
+marg.plot<-i_w_marg.df %>% 
+  dplyr::filter(motif %in% showcase_motifs.vec) %>%
+  dplyr::group_by(motif) %>%
+  dplyr::summarize(med_atac_wt_marg = median(atac_wt_marg),
+                   med_atac_wt_perturb = median(log(atac_wt.atac.WT.pred_sum/atac_wt.atac.dA.pred_sum),na.rm = T)) %>%
+  dplyr::mutate(motif = factor(motif, levels = showcase_motifs.vec))%>%
+  ggplot(., aes(x = motif, y = med_atac_wt_marg))+
+  geom_bar(stat = 'identity')+
+  theme_classic()
+
+```
+
+Find islands that contain Oct4 and see whether they're enriched for different island contents.
+
+```{r}
+island_classes.df<-i_w_marg.df %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  GenomicRanges::sort(ignore.strand = T) %>%
+  as.data.frame %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::summarize(island_content = paste(unique(sort(motif)), table(sort(motif)), sep = ':', collapse = '_'),
+                   island_content_ordered = paste(motif, collapse = '_'),
+                   island_content_unique = paste(unique(sort(motif)), collapse = '_'),
+                   island_count = length(motif))
+
+island_classes.df %>% dplyr::filter(grepl('Oct4', island_content), !grepl('Oct4-Sox2', island_content)) %>% .$island_content %>% table %>% sort(decreasing = T)
+```
+
+Compare differences between accessibility at Oct4-Sox2 motifs and Oct4 only motifs.
+
+```{r}
+oct4sox2_w_marg.gr<-i_w_marg.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::filter(motif %in% c('Oct4-Sox2'))
+sox2_w_marg.gr<-i_w_marg.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::filter(motif %in% c('Sox2'), !overlapsAny(., GenomicRanges::resize(oct4sox2_w_marg.gr, 2000, 'center'), ignore.strand = T))
+oct4_w_marg.gr<-i_w_marg.df %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F, seqnames.field = 'seqnames', start.field = 'start', end.field = 'end') %>%
+  plyranges::filter(motif %in% c('Oct4'), !overlapsAny(., GenomicRanges::resize(oct4sox2_w_marg.gr, 2000, 'center'), ignore.strand = T))
+
+motif.list<-list(Oct4Sox2 = oct4sox2_w_marg.gr, Sox2 = sox2_w_marg.gr, Oct4 = oct4_w_marg.gr)
+lapply(motif.list, length)
+bw.list<-list('atac_0h' = 'bw/GSE174774_mesc_atac_0h_combined_normalized.bw', 'atac_12h' = 'bw/GSE174774_mesc_atac_12h_combined_normalized.bw')
+```
+
+Try DESeq2 enrichement. This might be a better way of showing that Oct4 can actually act as a pioneer.
+
+```{r}
+deseq.df<-readr::read_tsv('tsv/mapped_motifs/all_islands_curated_1based_w_deseq2_data.tsv.gz')
+deseq.gr<-makeGRangesFromDataFrame(deseq.df, keep.extra.columns = T, starts.in.df.are.0based = F)
+
+deseq_across_motifs.df<-lapply(names(motif.list), function(x){
+  data.frame(deseq_15h_vs_0h = subsetByOverlaps(deseq.gr, motif.list[[x]], ignore.strand = T)$deseq_15h_vs_0h, motif = x)
+}) %>% rbindlist()
+
+deseq.plot<-ggplot(deseq_across_motifs.df, aes(x = motif, y = deseq_15h_vs_0h))+
+  geom_hline(yintercept = 0, linetype = 'dashed')+
+  geom_boxplot(outliers = F)+
+  scale_y_continuous(limits = c(-2, 1.5))+
+  theme_classic()
+just.plot<-marg.plot + deseq.plot
+ggsave(paste0(figure_filepath, '/justification_of_oct4_only.png'), just.plot, height = 4, width = 8)
+ggsave(paste0(figure_filepath, '/justification_of_oct4_only.pdf'), just.plot, height = 4, width = 8)
+```
+
+# All motifs: observed fold-change over time 
+
+## Read in differential data
+
+```{r}
+ttseq_w_deseq.df<-readr::read_tsv('tsv/mapped_motifs/all_genes_curated_1based_w_deseq2_data.tsv.gz')
+regions_w_deseq_both.df<-readr::read_tsv('tsv/mapped_motifs/all_islands_curated_1based_w_deseq2_data.tsv.gz')
+```
+
+Given OS motifs derived from mESCs as an anchor, how does gene expression change with the same arrangements of grouped/isolated? 
+
+```{r}
+motifs_acc.gr<-readr::read_tsv(motif_perturbs.path) %>% 
+  
+  dplyr::group_by(motif) %>%
+  dplyr::mutate(seq_match_quantile = ecdf(seq_match)(seq_match),
+                seq_match_quantile_bin = cut(seq_match_quantile, breaks = c(0, .33, .67, 1), include.lowest = T, labels = paste0('smq_', 1:3)),
+                region_id = as.integer(region_id)) %>%
+  dplyr::group_by(region_id) %>%
+  dplyr::mutate(island_count = dplyr::n(), 
+                island_content = paste(unique(sort(motif)), table(sort(motif)), sep = ':', collapse = '_'),
+                island_content_ordered = paste(motif, collapse = '_'),
+                island_content_unique = paste(unique(sort(motif)), collapse = '_')) %>%
+  dplyr::ungroup() %>%
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T, 
+                           seqnames.field = 'seqnames', start.field = 'start', end.field = 'end', 
+                           strand.field = 'strand')
+```
+
+Assign region information.
+
+```{r}
+regions_w_deseq_both.gr<-regions_w_deseq_both.df %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+regions_acc.gr<-readr::read_tsv(region.path) %>% makeGRangesFromDataFrame(keep.extra.columns = T)
+
+ov<-findOverlaps(regions_w_deseq_both.gr, regions_acc.gr, ignore.strand = T)
+regions_w_deseq_both.gr$region_id<-NA
+regions_w_deseq_both.gr$region_id[ov@from]<-regions_acc.gr$region_id[ov@to]
+
+regions_w_deseq_both.df<-regions_w_deseq_both.gr %>% 
+  # plyranges::mutate(atac_obs = regionSums(., 'bw/mesc_native_atac_cutsites_combined.bw'),
+  #                   atac_obs_q = ecdf(atac_obs)(atac_obs),
+  #                   atac_obs_q_bin = plyr::round_any(atac_obs_q, accuracy = .2, f = ceiling)) %>%
+  as.data.frame %>% dplyr::filter(!is.na(region_id)) %>% dplyr::mutate(region_id = as.integer(region_id)) %>%
+  dplyr::select(-c(island_count, island_content, island_content_ordered, island_content_unique)) %>% 
+  dplyr::left_join(motifs_acc.gr %>% as.data.frame %>% dplyr::select(region_id, island_count, island_content, island_content_ordered, island_content_unique) %>% unique())
+```
+
+## Differential plots
+
+### All pioneer motifs
+
+```{r}
+atac_comparisons<-paste0('deseq_', seq(3, 15, 3), 'h_vs_0h')
+atac_comparisons
+
+grouped.plot<-lapply(c('Oct4-Sox2', 'Sox2', 'Ctcf'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_acc.gr %>% 
+    as.data.frame %>% 
+    dplyr::filter(motif==x) %>%
+    dplyr::arrange(contrib_magnitude) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  #Measure effects of accessibility levels from DESeq2
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id)) %>%
+    dplyr::filter(!is.na(deseq_3h_vs_0h)) %>%
+    dplyr::select(atac_comparisons, row) %>%
+    tidyr::pivot_longer(cols = atac_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_comparisons)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  motifs_w_grouped.df<-motif.df %>% dplyr::select(motif, region_id, row, seq_match_quantile_bin, seq_match_quantile) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id, atac_obs_q_bin, atac_obs_q, atac_obs)) %>%
+    dplyr::left_join(grouped.df %>% dplyr::select(row, island_state) %>% unique()) %>% 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    dplyr::filter(!is.na(island_state))
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+  message(x, ': ', nrow(motif.df))
+  print(table(motifs_w_grouped.df$island_state, motifs_w_grouped.df$seq_match_quantile_bin))
+
+  #Plot distributions of isolated or grouped
+  abs_distributions.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = log(atac_obs), fill = island_state))+
+    geom_density(alpha = .5)+
+    scale_x_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_y_continuous(name = 'Density')+
+    scale_fill_manual(values = c('#b2182b', '#2166ac'))+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  abs_distributions.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.png'), abs_distributions.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility_distributions.pdf'), abs_distributions.plot, height = 4, width = 6)
+  # print(wilcox.test(motifs_w_grouped.df %>% dplyr::filter(island_state=='isolated') %>% .$atac_obs %>% log, grouped.df %>% dplyr::filter(island_state=='grouped') %>% .$atac_obs %>% log))
+  
+  #Plot absolute accessibility over categories
+  my_comparisons<-list(c('smq_1','smq_3'))
+  all_abs_acc.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = log(atac_obs)))+
+    geom_boxplot(outliers = F)+
+    ggpubr::stat_compare_means(comparisons = my_comparisons, method = 'wilcox.test')+
+    scale_y_continuous(name = 'Abs accessibility')+# limits = c(5, 7.5))+
+    scale_x_discrete(name = 'Motif PWM group')+
+    facet_grid(. ~ island_state)+
+    ggtitle('Abs accessibiltiy')+
+    theme_classic()
+  all_abs_acc.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.png'), all_abs_acc.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_abs_accessibility.pdf'), all_abs_acc.plot, height = 4, width = 6)
+
+  #Plot  affinities over categories
+  all_affinities.plot<-motifs_w_grouped.df %>% as.data.frame %>%
+    
+    #Remove all poor accessibility regions because we want to consider only open features. 
+    #This cutoff was determined from absolute observed accessibility effects in later plots. See similar results despite changing cutoffs. 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    ggplot(.,aes(x = seq_match_quantile_bin, y = seq_match_quantile, fill = island_state))+
+    geom_boxplot()+
+    ggpubr::stat_compare_means(method = 'wilcox.test')+
+    scale_y_continuous(name = 'PWM scores')+
+    scale_x_discrete(name = 'Motif PWM group')+
+    ggtitle('Affinities')+
+    theme_classic()
+  all_affinities.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.png'), all_affinities.plot, height = 4, width = 6)
+  ggsave(paste0(figure_filepath, '/motif_role_over_showcased_groups_', x, '_affinities.pdf'), all_affinities.plot, height = 4, width = 6)
+
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.png'), metaplot, height = 3, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_summary.pdf'), metaplot, height = 3, width = 10)
+
+  
+  #Plot effect of motif counts
+  island_count_deseq.plot<-grouped.df %>%
+    dplyr::filter(island_count<=4) %>%
+    dplyr::group_by(timepoint, island_count) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T),
+                     freq = dplyr::n()) %>%
+    dplyr::filter(freq >= 200) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = factor(island_count), group = island_count)) +
+    # geom_point()+
+    geom_line()+
+    scale_color_manual(values = turbo(n=4, end = .5, begin = .1))+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+
+  #Save plots as a summary plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_by_island_count.png'), island_count_deseq.plot, height = 3, width = 5)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_by_island_count.pdf'), island_count_deseq.plot, height = 3, width = 5)
+ 
+  return(NULL)
+})
+```
+
+### Excluding Sox2 and Klf4
+
+```{r}
+grouped.plot<-lapply(c('Oct4-Sox2'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_acc.gr %>% 
+    as.data.frame %>% 
+    dplyr::filter(motif==x, !grepl('_Sox2|Klf4', island_content), island_content_unique != 'Sox2') %>%
+    dplyr::arrange(contrib_magnitude) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  #Measure effects of accessibility levels from DESeq2
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id)) %>%
+    dplyr::filter(!is.na(deseq_3h_vs_0h)) %>%
+    dplyr::select(atac_comparisons, row) %>%
+    tidyr::pivot_longer(cols = atac_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(atac_comparisons)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  motifs_w_grouped.df<-motif.df %>% dplyr::select(motif, region_id, row, seq_match_quantile_bin, seq_match_quantile) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(atac_comparisons, region_id, atac_obs_q_bin, atac_obs_q, atac_obs)) %>%
+    dplyr::left_join(grouped.df %>% dplyr::select(row, island_state) %>% unique()) %>% 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    dplyr::filter(!is.na(island_state))
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+  message(x, ': ', nrow(motif.df))
+  print(table(motifs_w_grouped.df$island_state, motifs_w_grouped.df$seq_match_quantile_bin))
+
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_nonSK_summary.png'), metaplot, height = 3, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_nonSK_summary.pdf'), metaplot, height = 3, width = 10)
+
+  
+  #Plot effect of motif counts
+  island_count_deseq.plot<-grouped.df %>%
+    dplyr::filter(island_count<=4) %>%
+    dplyr::group_by(timepoint, island_count) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T),
+                     freq = dplyr::n()) %>%
+    dplyr::filter(freq >= 20) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = factor(island_count), group = island_count)) +
+    # geom_point()+
+    geom_line()+
+    scale_color_manual(values = turbo(n=4, end = .5, begin = .1))+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)')+
+    theme_classic()
+
+  #Save plots as a summary plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_nonSK_by_island_count.png'), island_count_deseq.plot, height = 3, width = 5)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_accessibility_nonSK_by_island_count.pdf'), island_count_deseq.plot, height = 3, width = 5)
+ 
+  return(NULL)
+})
+```
+
+Now plot enhancer expression.
+
+```{r}
+ttseq_comparisons<-c("ttseq_3h_vs_0h","ttseq_6h_vs_0h","ttseq_9h_vs_0h","ttseq_12h_vs_0h", "ttseq_15h_vs_0h")
+
+grouped.plot<-lapply(c('Oct4-Sox2'), function(x){
+
+  #Import motifs
+  motif.df<-motifs_acc.gr %>% 
+    as.data.frame %>% 
+    dplyr::filter(motif==x, !grepl('_Sox2|Klf4', island_content), island_content_unique != 'Sox2') %>%
+    dplyr::arrange(contrib_magnitude) %>%
+    dplyr::mutate(row = 1:dplyr::n())
+  
+  #Measure effects of accessibility levels from DESeq2
+  obs.df<-motif.df %>% dplyr::select(motif, region_id, row) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(ttseq_comparisons, region_id)) %>%
+    dplyr::filter(!is.na(ttseq_3h_vs_0h)) %>%
+    dplyr::select(ttseq_comparisons, row) %>%
+    tidyr::pivot_longer(cols = ttseq_comparisons,
+                        names_to = 'timepoint', values_to = 'deseq_atac') %>%
+    dplyr::mutate(timepoint = timepoint %>% factor(., levels = c(ttseq_comparisons)))
+
+  #Collect islands belonging to each motif
+  if(x=='Oct4-Sox2'){
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(grepl('Oct4-Sox2:1', island_content))
+  } else{
+    grouped.df<-obs.df %>% 
+      dplyr::left_join(motif.df %>% dplyr::select(row, region_id, seq_match_quantile_bin, seq_match_quantile)) %>% 
+      dplyr::left_join(regions_w_deseq_both.df %>% dplyr::select(region_id, island_count, island_content, atac_obs_q_bin)) %>%
+      dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+      dplyr::filter(!grepl('Oct4-Sox2', island_content))
+  }
+  
+  motifs_w_grouped.df<-motif.df %>% dplyr::select(motif, region_id, row, seq_match_quantile_bin, seq_match_quantile) %>%
+    dplyr::left_join(., regions_w_deseq_both.df %>% dplyr::select(ttseq_comparisons, region_id, atac_obs_q_bin, atac_obs_q, atac_obs)) %>%
+    dplyr::left_join(grouped.df %>% dplyr::select(row, island_state) %>% unique()) %>% 
+    dplyr::filter(atac_obs_q_bin>=.6) %>%
+    dplyr::filter(!is.na(island_state))
+  
+  grouped.df<-grouped.df %>% dplyr::filter(atac_obs_q_bin>=.6)
+  message(x, ': ', nrow(motif.df))
+  print(table(motifs_w_grouped.df$island_state, motifs_w_grouped.df$seq_match_quantile_bin))
+
+  #Group and summarize and plot motifs by boolean (grouped/ungrouped) and again by affinity group
+  grouped_deseq.plot<-grouped.df %>%
+    dplyr::group_by(island_state, timepoint) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, color = island_state, group = interaction(island_state))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  affinity_deseq.plot<-grouped.df %>%
+    dplyr::mutate(island_state = ifelse(island_count==1, 'isolated', 'grouped')) %>%
+    dplyr::group_by(island_state, timepoint, seq_match_quantile_bin) %>%
+    dplyr::summarize(med_deseq_atac = median(deseq_atac, na.rm = T)) %>%
+    ggplot(., aes(x = timepoint, y = med_deseq_atac, linetype = island_state, color = seq_match_quantile_bin, group = interaction(island_state, seq_match_quantile_bin))) +
+    # geom_point()+
+    geom_line()+
+    scale_x_discrete(name = 'Timepoint')+
+    scale_y_continuous(name = 'Observed Log2FC (mut/0h)', limits = c(-.6, .2))+
+    theme_classic()
+  
+  #Save plots as a summary plot
+  metaplot<-grouped_deseq.plot + affinity_deseq.plot
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_enhancer_expression_nonSK_summary.png'), metaplot, height = 3, width = 10)
+  ggsave(paste0(figure_filepath, '/motif_role_over_timepoints_', x, '_diff_enhancer_expression_nonSK_summary.pdf'), metaplot, height = 3, width = 10)
+
+  return(NULL)
+})
+```
+
+# Conclusions
+
+Looking at all pioneers is a really valid way of projecting this data.
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```

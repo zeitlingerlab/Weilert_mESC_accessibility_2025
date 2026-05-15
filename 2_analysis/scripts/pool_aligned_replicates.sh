@@ -1,5 +1,9 @@
 #!/bin/bash
 ml zeitlinger
+samtools merge --threads 12 bam/Bunina_mesc_atac_day0_combined.bam ../1_processing/bam/Bunina_mesc_atac_day0_1.bam ../1_processing/bam/Bunina_mesc_atac_day0_2.bam
+samtools merge --threads 12 bam/Bunina_mesc_atac_day12_combined.bam ../1_processing/bam/Bunina_mesc_atac_day12_1.bam ../1_processing/bam/Bunina_mesc_atac_day12_2.bam
+samtools merge --threads 12 bam/Bunina_mesc_atac_day4_combined.bam ../1_processing/bam/Bunina_mesc_atac_day4_1.bam ../1_processing/bam/Bunina_mesc_atac_day4_2.bam
+samtools merge --threads 12 bam/Bunina_mesc_atac_day8_combined.bam ../1_processing/bam/Bunina_mesc_atac_day8_1.bam ../1_processing/bam/Bunina_mesc_atac_day8_2.bam
 samtools merge --threads 12 bam/GSE174774_mesc_atac_0h_combined.bam ../1_processing/bam/GSE174774_mesc_atac_0h_1.bam ../1_processing/bam/GSE174774_mesc_atac_0h_2.bam
 samtools merge --threads 12 bam/GSE174774_mesc_atac_12h_combined.bam ../1_processing/bam/GSE174774_mesc_atac_12h_1.bam ../1_processing/bam/GSE174774_mesc_atac_12h_2.bam
 samtools merge --threads 12 bam/GSE174774_mesc_atac_15h_combined.bam ../1_processing/bam/GSE174774_mesc_atac_15h_1.bam ../1_processing/bam/GSE174774_mesc_atac_15h_2.bam
@@ -22,10 +26,6 @@ samtools merge --threads 12 bam/mesc_Btbd11_scenario_WT_coop_WT_atac_combined.ba
 samtools merge --threads 12 bam/mesc_Btbd11_scenario_WT_coop_mut_A_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_A_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_A_atac_2.bam
 samtools merge --threads 12 bam/mesc_Btbd11_scenario_WT_coop_mut_B_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_B_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_B_atac_2.bam
 samtools merge --threads 12 bam/mesc_Btbd11_scenario_WT_coop_mut_null_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_null_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_WT_coop_mut_null_atac_2.bam
-samtools merge --threads 12 bam/mesc_Btbd11_scenario_enh_coop_WT_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_WT_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_WT_atac_2.bam
-samtools merge --threads 12 bam/mesc_Btbd11_scenario_enh_coop_mut_A_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_A_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_A_atac_2.bam
-samtools merge --threads 12 bam/mesc_Btbd11_scenario_enh_coop_mut_B_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_B_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_B_atac_2.bam
-samtools merge --threads 12 bam/mesc_Btbd11_scenario_enh_coop_mut_null_atac_combined.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_null_atac_1.bam ../1_processing/bam/mesc_Btbd11_scenario_enh_coop_mut_null_atac_2.bam
 samtools merge --threads 12 bam/mesc_R1_klf4_nexus_combined.bam ../1_processing/bam/mesc_R1_klf4_nexus_5.bam ../1_processing/bam/mesc_R1_klf4_nexus_6.bam
 samtools merge --threads 12 bam/mesc_R1_sox2_nexus_combined.bam ../1_processing/bam/mesc_R1_sox2_nexus_15.bam ../1_processing/bam/mesc_R1_sox2_nexus_16.bam
 samtools merge --threads 12 bam/mesc_ctcf_nexus_combined.bam ../1_processing/bam/mesc_ctcf_nexus_2.bam ../1_processing/bam/mesc_ctcf_nexus_5.bam ../1_processing/bam/mesc_ctcf_nexus_6.bam

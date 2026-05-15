@@ -81,7 +81,7 @@ For each coverage set assign model organism information, pool, normalize, and ex
 
 ```{r, eval = F}
 all_samples<-samples.df$sample_group %>% unique()
-featured_samples<-all_samples %>% grep('overy', ., value = T) 
+featured_samples<-all_samples #%>% grep('Bunina', ., value = T) 
 # featured_samples<-samples.df %>% dplyr::filter(reference_genome=='Akr1cl_context_AB') %>% .$sample_group %>% unique()
 
 filler<-mclapply(featured_samples, function(x){
@@ -218,6 +218,7 @@ sbuild -c 12 -m 200GB --submit scripts/pool_aligned_replicates.sh
 ```{r}
 peak_cmds.df<-samples.df %>%
   dplyr::group_by(sample_group) %>%
+  # dplyr::filter(sample_group %in% featured_samples) %>%
   dplyr::summarize(cmd = ifelse(unique(experiment)=='ATAC-seq',
                                 paste0('macs2 callpeak -f BAMPE -t bam/', sample_group, '_combined.bam --outdir macs2 -n ', sample_group),
                                 paste0('macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/', sample_group, '_combined.bam --outdir macs2 -n ', sample_group)))
@@ -233,6 +234,7 @@ sbuild -c 12 -m 200GB --submit scripts/call_pooled_peaks.sh
 Using IDR (v2.0.3), generate reproducible peaks. 
 
 ```{r}
+# idr_cmds.vec<-lapply(samples.df %>% dplyr::filter(sample_group %in% featured_samples) %>% .$sample_group %>% unique(), function(x){
 idr_cmds.vec<-lapply(samples.df$sample_group %>% unique(), function(x){
   rep_combos.df<-samples.df %>%
     dplyr::filter(sample_group==x) %>%

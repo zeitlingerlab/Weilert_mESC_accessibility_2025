@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-10-06" />
+<meta name="date" content="2026-02-24" />
 
 <title>Cooperativity of accessibility and binding</title>
 
@@ -1494,7 +1494,7 @@ border-radius: 0px;
 <h1 class="title toc-ignore">Cooperativity of accessibility and
 binding</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">October 06, 2025</h4>
+<h4 class="date">February 24, 2026</h4>
 
 </div>
 
@@ -1546,6 +1546,9 @@ bind_motif_to_task.df&lt;-data.frame(key_task = bind_motif_to_task.list %&gt;% u
 genomic_motifs.path&lt;-&#39;tsv/genomic/motifs/instances_formatted_for_genomic_perturbations_0based.tsv.gz&#39;
 motif_perturbs.path&lt;-&#39;tsv/mapped_motifs/all_instances_curated_0based_w_perturb.tsv.gz&#39;
 paired_perturbs.path&lt;-&#39;tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz&#39;
+
+alternate_perturbs.path&lt;-&#39;tsv/genomic/all_pairs_curated_0based_w_alternate_perturb.tsv.gz&#39;
+
 region.path&lt;-&#39;tsv/mapped_motifs/all_islands_curated_1based_w_experimental_data.tsv.gz&#39;
 models_of_interest&lt;-c(&#39;atac_wt&#39;, &#39;bpnet_osknz&#39;)
 models.list&lt;-list(bpnet_osknz = c(&#39;oct4&#39;,&#39;sox2&#39;,&#39;nanog&#39;,&#39;klf4&#39;,&#39;zic3&#39;),
@@ -2264,6 +2267,55 @@ ggsave(paste0(figure_filepath, &#39;/genomic_coop_summary_lowaffinity_motifs_no_
 
 ggsave(paste0(figure_filepath, &#39;/genomic_coop_summary_all_motifs_medians.png&#39;), summarize_all.plot, height = 10, width = 8)
 ggsave(paste0(figure_filepath, &#39;/genomic_coop_summary_all_motifs_medians.pdf&#39;), summarize_all.plot, height = 10, width = 8)</code></pre>
+<div id="alternate-models-and-cooperativity" class="section level4">
+<h4>Alternate models and cooperativity</h4>
+<p>Read in paired perturbations and process for all motifs for alternate
+models.</p>
+<pre class="r"><code>alternate_perturbs.df&lt;-readr::read_tsv(alternate_perturbs.path) %&gt;%
+    dplyr::mutate(motif_pair_distance = abs(pattern_center.y - pattern_center.x)) %&gt;%
+    dplyr::rowwise() %&gt;%
+    dplyr::mutate(motif_pair_ordered = paste(sort(c(motif.x, motif.y)), collapse = &quot; vs &quot;),
+                  motif_pair_blind = paste0(motif.x, &#39; vs &#39;, motif.y)) %&gt;% 
+    #Remove directionality from pairs by removing one of A-&gt;B and B-&gt;A pairs
+    # dplyr::filter(motif_pair_ordered==motif_pair_blind) %&gt;% 
+    dplyr::ungroup()</code></pre>
+<p>Per model, process the paired perturbations.</p>
+<pre class="r"><code>alternate_model_summary.df&lt;-mclapply(c(&#39;atac_wt_across_genome&#39;, &#39;atac_wt_across_acc&#39;, &#39;atac_wt_across_split&#39;), function(x){
+  message(x)
+  task&lt;-&#39;atac&#39;
+  p_summary.df&lt;- alternate_perturbs.df %&gt;%
+    dplyr::select(region_id, pair_name, pair_id, motif_pair_ordered, motif_pair_blind, motif_pair_distance, seq.x, seq.y,
+                  motif.x, motif.y, seq_match_quantile.x, seq_match_quantile.y,
+                  hAB_sum = !!sym(paste0(x, &#39;/&#39;, task, &#39;/hAB/pred_sum&#39;)),
+                  hB_sum = !!sym(paste0(x, &#39;/&#39;, task, &#39;/hB/pred_sum&#39;)),
+                  hA_sum = !!sym(paste0(x, &#39;/&#39;, task, &#39;/hA/pred_sum&#39;)),
+                  null_sum = !!sym(paste0(x, &#39;/&#39;, task, &#39;/null/pred_sum&#39;))) %&gt;%
+    dplyr::filter(motif_pair_distance &lt;=300, motif_pair_distance &gt;=30) %&gt;%
+    dplyr::mutate(add_coop = (hAB_sum - null_sum)/(hA_sum + hB_sum - 2*null_sum),
+                  log_coop = log(add_coop)) %&gt;%
+    dplyr::group_by(motif_pair_ordered) %&gt;%
+    dplyr::summarize(median_log_add_coop = median(log_coop, na.rm = T),
+                     count = dplyr::n()/2) %&gt;%
+    dplyr::mutate(motif_pair_ordered = factor(motif_pair_ordered, levels = motif_pair_blind_order)) %&gt;%
+    as.data.frame %&gt;%
+    dplyr::filter(count&gt;=count_threshold) %&gt;%
+    dplyr::select(-count) %&gt;%
+    dplyr::mutate(model = x)
+  return(p_summary.df)
+  
+}) %&gt;% rbindlist() %&gt;% tidyr::pivot_wider(names_from = model, values_from  = median_log_add_coop)
+
+#Join WT values
+original_summary.df&lt;-perturbs.df %&gt;%
+  dplyr::mutate(log_add_coop = log(add_coop)) %&gt;%
+  dplyr::filter(task==&#39;atac&#39;, motif_pair_distance &lt;=300, motif_pair_distance &gt;=30) %&gt;%
+  dplyr::group_by(motif_pair_ordered) %&gt;%
+  dplyr::summarize(atac_wt_original = median(log_add_coop, na.rm = T))
+
+all_summary.df&lt;-alternate_model_summary.df %&gt;% 
+  dplyr::left_join(original_summary.df %&gt;% dplyr::select(motif_pair_ordered, atac_wt_original))
+readr::write_tsv(all_summary.df, &#39;tsv/motif_cooperativities_across_models.tsv&#39;)</code></pre>
+</div>
 </div>
 <div id="summarize-cooperativity-with-low-affinity-motif-pairs-with-distance" class="section level3">
 <h3>Summarize cooperativity with low-affinity motif pairs (with

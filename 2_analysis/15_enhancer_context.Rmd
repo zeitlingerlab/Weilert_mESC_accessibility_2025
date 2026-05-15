@@ -77,6 +77,8 @@ atac_dinuc_marg.path<-'tsv/insilico/marginalizations/dinucleotides/marginalizati
 bind_dinuc_marg.path<-'tsv/insilico/marginalizations/dinucleotides/marginalizations_bpnet_osknz.tsv.gz'
 paired_perturbs.path<-'tsv/genomic/all_pairs_curated_0based_w_perturb.tsv.gz'
 
+motifs_w_alternate_perturbs.path<-'tsv/mapped_motifs/all_instances_curated_0based_w_alternate_perturb.tsv.gz'
+
 enhancer_motifs.path<-'tsv/genomic/enhancers/enhancer_motifs.tsv.gz'
 atac_contrib.path<-'shap/atac_wt_fold1_atac_counts.bw'
 
@@ -381,7 +383,6 @@ ggsave(paste0(figure_filepath, '/bind_perturb_vs_acc_perturb_vs_pioneering_twoph
 
 Calculate and report residuals. First do it in a combined model.
 
-
 ```{r}
 residuals.df<-lapply(c('with_strongest', 'without_strongest'), function(distance_state){
   lapply(motifs_w_centers.df$motif %>% unique, function(x){
@@ -513,6 +514,59 @@ motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_d
 
 ```
 
+### Depict for alternate models
+
+Subselect perturbation scores for the alternate models.
+
+```{r}
+motifs_w_alternate_perturbs.df<-readr::read_tsv(motifs_w_alternate_perturbs.path) %>%
+  dplyr::mutate(
+    atac_wt_across_genome_perturb = log(`atac_wt_across_genome/atac/WT/pred_sum`) - log(`atac_wt_across_genome/atac/dA/pred_sum`),
+    atac_wt_across_acc_perturb = log(`atac_wt_across_acc/atac/WT/pred_sum`) - log(`atac_wt_across_acc/atac/dA/pred_sum`),
+    atac_wt_across_split_perturb = log(`atac_wt_across_split/atac/WT/pred_sum`) - log(`atac_wt_across_split/atac/dA/pred_sum`)
+  )
+```
+
+```{r}
+#Secondary only
+df<-lapply(c('atac_wt_across_genome', 'atac_wt_across_acc', 'atac_wt_across_split'), function(x){
+  message(x)
+  
+  motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance, 
+                                        distance_from_pioneering_center_abs!=0) %>%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %>% dplyr::select(motif_id, !!sym(paste0(x, '_perturb')))) %>%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, '_perturb'))) %>%
+    dplyr::group_by(motif) %>%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman')) %>% as.data.frame %>%
+    dplyr::filter(motif %in% c('Oct4-Sox2','Sox2', 'Nanog')) %>% as.data.frame %>% dplyr::mutate(model = x) %>%
+    dplyr::mutate(motif = factor(motif, levels = c('Oct4-Sox2','Sox2', 'Nanog'))) %>% dplyr::arrange(motif)
+}) %>% rbindlist() 
+print(df)
+readr::write_tsv(df, 'tsv/acc_vs_dist_secondary_alternate_models.tsv')
+
+#All motifs
+df<-lapply(c('atac_wt_across_genome', 'atac_wt_across_acc', 'atac_wt_across_split'), function(x){
+  message(x)
+  motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance) %>%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %>% dplyr::select(motif_id, !!sym(paste0(x, '_perturb')))) %>%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, '_perturb'))) %>%
+    dplyr::group_by(motif) %>%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman')) %>% as.data.frame %>%
+    dplyr::filter(motif %in% c('Oct4-Sox2','Sox2', 'Nanog')) %>% as.data.frame %>% dplyr::mutate(model = x) %>%
+    dplyr::mutate(motif = factor(motif, levels = c('Oct4-Sox2','Sox2', 'Nanog'))) %>% dplyr::arrange(motif)
+}) %>% rbindlist()
+print(df)
+readr::write_tsv(df, 'tsv/acc_vs_dist_all_alternate_models.tsv')
+```
+
 ## Show Sox2 correlations at specific sequences
 
 Find Sox2 specific-sequences correlations on these plots.
@@ -591,6 +645,48 @@ motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_d
                    bind_vs_summit = cor(bind_perturb, distance_from_peak_summit.distance, method = 'spearman'), 
                    bind_vs_pwm = cor(bind_perturb, seq_match_quantile)
   ) %>% as.data.frame
+```
+
+
+### Depict for alternate models
+
+```{r}
+#Secondary only
+df<-lapply(c('atac_wt_across_genome', 'atac_wt_across_acc', 'atac_wt_across_split'), function(x){
+  message(x)
+  
+  motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance, 
+                                        distance_from_pioneering_center_abs!=0, motif=='Sox2', 
+                                      seq %in% c(motifs_w_centers.df %>% dplyr::filter(region_id==curated_region_id, motif=='Sox2') %>% .$seq)) %>%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %>% dplyr::select(motif_id, !!sym(paste0(x, '_perturb')))) %>%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, '_perturb'))) %>%
+    dplyr::group_by(motif, seq) %>%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman'), model = x) %>% as.data.frame%>% dplyr::arrange(desc(seq))
+}) %>% rbindlist() 
+print(df)
+readr::write_tsv(df, 'tsv/acc_vs_dist_secondary_akr1cl_alternate_models.tsv')
+
+#All motifs
+df<-lapply(c('atac_wt_across_genome', 'atac_wt_across_acc', 'atac_wt_across_split'), function(x){
+  message(x)
+  motifs_w_centers.df %>% dplyr::filter(distance_from_pioneering_center_abs<=max_distance,
+                                        motif=='Sox2', 
+                                        seq %in% c(motifs_w_centers.df %>% dplyr::filter(region_id==curated_region_id, motif=='Sox2') %>% .$seq)) %>%
+    dplyr::left_join(motifs_w_alternate_perturbs.df %>% dplyr::select(motif_id, !!sym(paste0(x, '_perturb')))) %>%
+    dplyr::mutate(acc_perturb = !!sym(paste0(x, '_perturb'))) %>%
+    dplyr::group_by(motif, seq) %>%
+
+    dplyr::summarize(acc_vs_dist = cor(acc_perturb, distance_from_pioneering_center_abs, method = 'spearman'), 
+                     acc_vs_pwm = cor(acc_perturb, seq_match_quantile),
+                     acc_vs_atac_max = cor(acc_perturb, distance_from_atac_max, method = 'spearman'), 
+                     acc_vs_summit = cor(acc_perturb, distance_from_peak_summit.distance, method = 'spearman'), model = x) %>% as.data.frame %>% dplyr::arrange(desc(seq))
+}) %>% rbindlist()
+print(df)
+readr::write_tsv(df, 'tsv/acc_vs_dist_all_akr1cl_alternate_models.tsv')
 ```
 
 # Session Information

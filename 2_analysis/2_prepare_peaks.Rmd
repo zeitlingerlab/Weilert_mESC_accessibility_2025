@@ -63,6 +63,10 @@ blacklist.gr<-rtracklayer::import('bed/mm10.blacklist.bed')
 atac.path<-'bw/mesc_native_atac_cutsites_combined.bw'
 atac_reps.path<-Sys.glob('bw/mesc_native_atac_*_cutsites.bw')
 xiong_reps.path<-Sys.glob('bw/GSE174774_mesc_atac_*h_[1|2].bw')
+repeats.gr<-readRDS('/n/projects/mw2098/genomes/mm10/repeatmasker.mm10.gr.rds') %>%
+  plyranges::filter(grepl('LINE|ERV', repeat_class))
+
+chroms<-c(paste0('chr', 1:19), 'chrX', 'chrY')
 ```
 
 # Export enhancers curated in Avsec 2021 to .bed
@@ -90,7 +94,11 @@ peaks.list<-list(mesc_atac_peaks = 'idr/mesc_native_atac_2_vs_3_idr.txt',
                  mesc_oct4_nexus_peaks = 'idr/mesc_oct4_nexus_1_vs_2_idr.txt',
                  mesc_sox2_nexus_peaks = 'idr/mesc_sox2_nexus_2_vs_6_idr.txt',
                  mesc_klf4_nexus_peaks = 'idr/mesc_klf4_nexus_1_vs_3_idr.txt',
-                 mesc_nanog_nexus_peaks = 'idr/mesc_nanog_nexus_1_vs_4_idr.txt'
+                 mesc_nanog_nexus_peaks = 'idr/mesc_nanog_nexus_1_vs_4_idr.txt',
+                 bunina_atac_day0_peaks = 'idr/Bunina_mesc_atac_day0_1_vs_2_idr.txt',
+                 bunina_atac_day4_peaks = 'idr/Bunina_mesc_atac_day4_1_vs_2_idr.txt',
+                 bunina_atac_day8_peaks = 'idr/Bunina_mesc_atac_day8_1_vs_2_idr.txt',
+                 bunina_atac_day12_peaks = 'idr/Bunina_mesc_atac_day12_1_vs_2_idr.txt'
 )
 ```
 
@@ -132,13 +140,42 @@ peaks.gr.list<-lapply(names(peaks.list), function(x){
                       seq = getSeq(bsgenome, ., as.character=T)) %>%  
     plyranges::arrange(desc(pValue)) %>% 
     plyranges::filter(!grepl('N', seq)) %>% #Filter out all regions with N's in them
-    plyranges::select(-seq)
+    plyranges::select(-seq) %>%
+    plyranges::mutate(is_erv = overlapsAny(., repeats.gr, ignore.strand = T))
   
   #Write GRanges
   plyranges::write_narrowpeaks(x = gr, file = paste0('narrowpeak/', tolower(x), '.narrowPeak'))
   rtracklayer::export(object = gr, con = paste0('narrowpeak/', tolower(x), '.bed'))
   return(gr)
 })
+names(peaks.gr.list)<-names(peaks.list)
+```
+
+## Compare ATAC-seq peaks to binding peaks
+
+```{r}
+#Collect ATAC-seq peaks
+atac_peaks.gr<-peaks.gr.list$mesc_atac_peaks %>%
+  plyranges::mutate(signalValue_quantile = ecdf(signalValue)(signalValue),
+                    atac_signal = regionSums(., 'bw/mesc_native_atac_cutsites_combined.bw'))
+
+#Collect binding peaks
+bind_peaks.gr<-grep('nexus', names(peaks.gr.list), value = T) %>% grep('bunina', ., value = T, invert = T) %>% lapply(., function(x) peaks.gr.list[[x]] %>% plyranges::mutate(name = x)) %>% as('GRangesList') %>% unlist() %>%
+  plyranges::mutate(atac_signal = regionSums(., 'bw/mesc_native_atac_cutsites_combined.bw'))
+
+#Compare quantile distributions between the two features
+a_75<-quantile(atac_peaks.gr$atac_signal, .75)
+a_25<-quantile(atac_peaks.gr$atac_signal, .25)
+
+b_75<-quantile(bind_peaks.gr$atac_signal, .75)
+b_25<-quantile(bind_peaks.gr$atac_signal, .25)
+
+message('q3: ', a_75, ', q1: ', a_25, ', iqr: ', a_75-a_25)
+message('q3: ', b_75, ', q1: ', b_25, ', iqr: ', b_75-b_25)
+
+filtered_peaks_post_preparebed.gr<-rtracklayer::import('bed/bpreveal/atac_wt_fold1_all.bed')
+overlapsAny(filtered_peaks_post_preparebed.gr, atac_peaks.gr, ignore.strand = T) %>% sum
+length(filtered_peaks_post_preparebed.gr)
 ```
 
 # Non-peak regions
@@ -222,6 +259,8 @@ atac_peaks_w_signal.gr<-rtracklayer::import('narrowpeak/mesc_atac_peaks.narrowPe
 max_non_peak_reads<-min(atac_peaks_w_signal.gr$atac_signal)
 max_non_peak_reads
 
+max_non_peak_reads*low_count_threshold
+
 non_peaks_low_reads.gr<-non_peaks.gr %>%
   plyranges::mutate(atac_signal = regionSums(resize(., width = 1150, fix = 'center'), #generally the size of the input window
                                              atac.path)) %>%
@@ -295,6 +334,42 @@ ggsave(paste0(figure_filepath, '/atac_read_density_distributions.png'), density.
 
 It appears like ~10%> of peak read distributions overlap. This is higher than the overlap with ATAC-seq peaks. There isn't an even distribution match, but that is to be expected as TF binding and accessibility is intrinsically linked. Here, we have validated that a randomly sampled region set does share features with TF peaks and that there are TF peaks without strong accessibility feature. This should give us a balanced enough set to train on TF peaks for our ATAC-seq model.
 
+# Reviewer request: Train on expanded region set
+
+Reviewers requested that we train (1) genome-wide, (2) on accessibility-open regions to showcase the model's robustness and to confirm we aren't missing properties of the genome. Further, I will train on a 50/50 open/not open split for a more granular transition to genome-wide, which may take some time given it is the mammalian genome. Here, we will prepare the datasets for model training.
+
+## Genome-wide
+
+```{r}
+genome.gr<-lapply(chroms, function(x){
+  GRanges(x, slidingIRanges(len = seqlengths(bsgenome)[[x]], width = output_seqlen, shift = output_seqlen))
+}) %>% as('GRangesList') %>% unlist()
+seqinfo(genome.gr)<-seqinfo(bsgenome)
+seqlevels(genome.gr)<-seqlevels(bsgenome)
+
+genome.gr<-genome.gr %>% 
+  check_chromosome_boundaries(., 5000, bsgenome) %>%
+    plyranges::select(-seqlength_filler, -end_distance, -start_distance) %>%
+  plyranges::filter(!overlapsAny(GenomicRanges::resize(., floor(output_seqlen*2.5), 'center'), blacklist.gr))  %>%#2K is approximate receptive field increase
+  plyranges::mutate(seq = getSeq(bsgenome, 
+                                 resize(., width = floor(output_seqlen*2.5), fix = 'center'), #generally the size of the input window
+                                 as.character=T)) %>%  
+  plyranges::filter(!grepl('N', seq)) %>% #Filter out all regions with N's in them
+  plyranges::select(-seq) #2K is approximate receptive field increase
+
+rtracklayer::export(genome.gr, 'bed/mm10_genome_across_sliding_windows.bed')
+```
+
+## 50/50 split
+
+Here, we will sample non-peak loci. This time, not for low read counts, but rather to a number similar to accessible regions. By this
+
+```{r}
+atac_peak_count<-length(atac_peaks.gr)
+sampled_non_peaks.gr<-sample(non_peaks.gr, atac_peak_count, replace = F)
+rtracklayer::export(c(atac_peaks.gr, sampled_non_peaks.gr) %>% plyranges::mutate(score = 0), 'bed/mm10_acc_and_nonacc_split.bed')
+```
+
 # Reproducibility across ATAC-seq samples
 
 ## Experimentally collected replicate reproducibility
@@ -316,7 +391,7 @@ atac_reads.df
 
 Show that coverage is comparable
 
-```{r}
+```{r, eval = F}
 rep_comparison.list<-list(c(1,2), c(1, 3), c(2, 3))
 
 #Plot the sequencing depth imbalance.
@@ -346,7 +421,7 @@ ggsave(paste0(figure_filepath, '/atac_rep_comparison.pdf'), rep.plot, height = 3
 
 Plot the sequencing depth and FRiP scores of already published ATAC-seq Oct4 mutant data to confirm data is consistent and high quality.
 
-```{r}
+```{r, eval = F}
 xiong_summary.df<-mclapply(xiong_reps.path, function(x){
   reads.gr<-readRDS(paste0('../1_processing/rdata/', gsub('.bw', '.granges.rds',  basename(x))))
   peaks.gr<-rtracklayer::import(paste0('../1_processing/peaks/', gsub('.bw', '_peaks.narrowPeak',  basename(x)))) %>% resize(., 1000, 'center')
@@ -376,7 +451,7 @@ ggsave(paste0(figure_filepath, '/xiong_rep_comparison.pdf'), xiong_summary.plot,
 
 Plot replicate comparisons on reads:
 
-```{r}
+```{r, eval = F}
 #Plot the sequencing depth imbalance.
 plot.list<-mclapply(seq(0, 15, 3), function(x){
   reps<-grep(pattern = paste0(x, 'h'), x = xiong_reps.path, value = T)

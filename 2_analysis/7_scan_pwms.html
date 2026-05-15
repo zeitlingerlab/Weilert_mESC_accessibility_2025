@@ -11,7 +11,7 @@
 
 <meta name="author" content="Melanie (1028-02098-001-001)" />
 
-<meta name="date" content="2025-09-16" />
+<meta name="date" content="2026-03-23" />
 
 <title>PWM-scan for motifs</title>
 
@@ -1493,7 +1493,7 @@ border-radius: 0px;
 
 <h1 class="title toc-ignore">PWM-scan for motifs</h1>
 <h4 class="author">Melanie (1028-02098-001-001)</h4>
-<h4 class="date">September 16, 2025</h4>
+<h4 class="date">March 23, 2026</h4>
 
 </div>
 
@@ -2729,6 +2729,12 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
         print(table(cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% head(n=sampled_motif_n) %&gt;% .$mapping_state))
 
         #Collect binding/metapeak information of top/med/bottom/PWM motifs 
+        if(length(cwm.gr)&lt;10000){
+          bottom_n&lt;-length(cwm.gr) - sampled_motif_n
+        } else{
+          bottom_n&lt;-sampled_motif_n
+        }
+        
         bind.df&lt;-rbind(
           pwm.gr %&gt;% 
             arrange(desc(!!sym(ordering_var))) %&gt;% head(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
@@ -2741,7 +2747,7 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
             tail(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
             exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %&gt;%
             dplyr::mutate(mapping = &#39;mid_cwm&#39;),
-          cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% head(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
+          cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% head(n=bottom_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
             exo_metapeak(gr = ., sample = bind.cov, upstream = 51, downstream = 50) %&gt;%
             dplyr::mutate(mapping = &#39;bottom_cwm&#39;)
         ) %&gt;% 
@@ -2771,7 +2777,7 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
               tail(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
               exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %&gt;%
               dplyr::mutate(mapping = &#39;mid_cwm&#39;),
-            cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% head(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
+            cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% head(n=bottom_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
               exo_metapeak(gr = ., sample = sox2_bind.cov, upstream = 51, downstream = 50) %&gt;%
               dplyr::mutate(mapping = &#39;bottom_cwm&#39;)
           ) %&gt;% 
@@ -2801,7 +2807,7 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
             tail(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;) %&gt;% 
             standard_metapeak(gr = ., sample = &#39;bw/mesc_native_atac_cutsites_combined.bw&#39;, upstream = 1001, downstream = 1000) %&gt;%
             dplyr::mutate(mapping = &#39;mid_cwm&#39;),
-          cwm.gr %&gt;% arrange(seq_match_quantile) %&gt;% head(n=sampled_motif_n) %&gt;% resize(., 1, &#39;center&#39;)  %&gt;%
+          cwm.gr %&gt;% arrange(seq_match_quantile) %&gt;% head(n=bottom_n) %&gt;% resize(., 1, &#39;center&#39;)  %&gt;%
             standard_metapeak(gr = ., sample = &#39;bw/mesc_native_atac_cutsites_combined.bw&#39;, upstream = 1001, downstream = 1000) %&gt;%
             dplyr::mutate(mapping = &#39;bottom_cwm&#39;)
         ) %&gt;% 
@@ -2824,7 +2830,7 @@ plot.list&lt;-lapply(c(&#39;binding_levels&#39;, &#39;seq_match_quantile&#39;), 
                           head(n=floor(length(cwm.gr)/2) + floor(sampled_motif_n/2)) %&gt;% 
                           tail(n=sampled_motif_n) %&gt;% getSeq(bsgenome, ., as.character = T),
                         bottom_cwm = cwm.gr %&gt;% arrange(!!sym(ordering_var)) %&gt;% 
-                          head(n=sampled_motif_n) %&gt;% getSeq(bsgenome, ., as.character = T))
+                          head(n=bottom_n) %&gt;% getSeq(bsgenome, ., as.character = T))
         logo.plot&lt;-ggplot() + geom_logo(logo.list) + theme_logo() + 
           facet_wrap(~seq_group, ncol=1, scales=&#39;free_x&#39;)  + 
           ggtitle(y)

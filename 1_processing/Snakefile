@@ -42,8 +42,8 @@ SAMPLES.starting_files_r2 = SAMPLES.starting_files_r2.fillna('X') #fill column w
 
 #Allocate samples to avoid unnecessary steps.
 SAMPLES_WITH_NO_WCE = SAMPLES[~SAMPLES['sample_name'].str.contains('wce|h3_|gdna')] #filter all rows that have "wce" in their name
-SAMPLES_TO_CALL_PEAKS = SAMPLES_WITH_NO_WCE[~SAMPLES_WITH_NO_WCE['experiment'].str.contains('MNase|TT')] #filter all rows that have "rna" or "wce" as their method
-SAMPLES_TO_CALL_METRICS = SAMPLES[~SAMPLES['experiment'].str.contains('TT')] #filter all rows that have "rna" or "wce" as their method
+SAMPLES_TO_CALL_PEAKS = SAMPLES_WITH_NO_WCE[~SAMPLES_WITH_NO_WCE['experiment'].str.contains('MNase|TT|RNA')] #filter all rows that have "rna" or "wce" as their method
+SAMPLES_TO_CALL_METRICS = SAMPLES[~SAMPLES['experiment'].str.contains('TT|RNA')] #filter all rows that have "rna" or "wce" as their method
 
 ##########################################################################################
 # Request output files based on rules below
@@ -90,7 +90,7 @@ rule raw_fastq_to_processed_fastq:
     message: 'Processing FASTQ'
     run:
         shell('mkdir -p {params.output_dir}')
-        if (params.exp == 'ChIP-seq') or (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'TT-seq'):
+        if (params.exp == 'ChIP-seq') or (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'TT-seq') or (params.exp == 'RNA-seq'):
             if params.sequencing_type == 'single':
                 shell(
                     """
@@ -169,12 +169,24 @@ rule processed_fastq_to_sorted_bam:
         shell('mkdir -p {params.stats_dir}')
         shell('mkdir -p {params.output_dir}')
         if params.sequencing_type == 'single':
-            shell(
-                """
-                bowtie2 -x /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/bowtie2/{params.g} \
-                {params.read1} -p {params.threads} --no-unal --no-mixed 2> {params.stats} | \
-                samtools view -F 4 -Sb | samtools sort --threads {params.threads} -o {output} - ;
-                """)
+            if params.exp == 'RNA-seq':
+                shell(
+                    """
+                    STAR --runThreadN {params.threads} \
+                    --genomeDir /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/STAR/STAR.2.7.3a \
+                    --readFilesIn {params.read1} --outFileNamePrefix {params.output_dir}/{params.sample} \
+                    --readFilesCommand zcat --outSAMtype BAM SortedByCoordinate \
+                    --quantMode TranscriptomeSAM GeneCounts \
+                    --sjdbGTFfile /n/projects/mw2098/publications/2024_weilert_acc/public/databases/Ens/mm10.Ens_98.gtf
+                    samtools view -F 4 -Sb {params.output_dir}/{params.sample}Aligned.sortedByCoord.out.bam | samtools sort --threads {params.threads} -o {output} - ;
+                    """)
+            else:
+                shell(
+                    """
+                    bowtie2 -x /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/indexes/bowtie2/{params.g} \
+                    {params.read1} -p {params.threads} --no-unal --no-mixed 2> {params.stats} | \
+                    samtools view -F 4 -Sb | samtools sort --threads {params.threads} -o {output} - ;
+                    """)
         else:
             if params.exp == 'TT-seq':
                 shell(
@@ -219,7 +231,7 @@ rule bam_to_bw:
                 Rscript /n/projects/mw2098/publications/2024_weilert_acc/code/1_processing/scripts/nexus_process_bam.r -f {input} -n {params.rdata_name} -b {params.bw_name} -u {params.dedup}
                 """
             )
-        elif (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'ChIP-seq') or (params.exp == 'TT-seq'):
+        elif (params.exp == 'ATAC-seq') or (params.exp == 'MNase') or (params.exp == 'ChIP-seq') or (params.exp == 'TT-seq') or (params.exp == 'RNA-seq'):
             shell(
                 """
                 #Mark duplicates
@@ -241,7 +253,7 @@ rule bam_to_bw:
                         --deduplicate_file {params.dedup} --tn5_cut_correction T --minimum_fragment_size 10 --maximum_fragment_size {params.maximum_fragment_size} --cut_site_export T
                     """
                 )
-            elif (params.exp == 'MNase') or (params.exp == 'TT-seq'):
+            elif (params.exp == 'MNase') or (params.exp == 'TT-seq') or (params.exp == 'RNA-seq'):
                 if str(SAMPLES[SAMPLES.output_sample==wildcards.output_sample].sequencing_type[0]) == 'single':
                     shell(
                         """

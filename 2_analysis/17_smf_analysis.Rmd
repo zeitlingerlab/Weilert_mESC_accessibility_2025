@@ -216,6 +216,14 @@ ggsave(paste0(figure_filepath, '/smf_single_tf_summary.png'), single_tf.plot, he
 ggsave(paste0(figure_filepath, '/smf_single_tf_summary.pdf'), single_tf.plot, height = 10, width = 8)
 ```
 
+Report generalized summary statistics of openness at these regions.
+
+```{r}
+smf_single_all.df$percent_open_published %>% summary()
+sd(smf_single_all.df$percent_open_published, na.rm = T)
+```
+
+
 Plot without log-space accessibility reads.
 
 ```{r}

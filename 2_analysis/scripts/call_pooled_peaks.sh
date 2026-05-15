@@ -1,5 +1,9 @@
 #!/bin/bash
 ml zeitlinger
+macs2 callpeak -f BAMPE -t bam/Bunina_mesc_atac_day0_combined.bam --outdir macs2 -n Bunina_mesc_atac_day0
+macs2 callpeak -f BAMPE -t bam/Bunina_mesc_atac_day12_combined.bam --outdir macs2 -n Bunina_mesc_atac_day12
+macs2 callpeak -f BAMPE -t bam/Bunina_mesc_atac_day4_combined.bam --outdir macs2 -n Bunina_mesc_atac_day4
+macs2 callpeak -f BAMPE -t bam/Bunina_mesc_atac_day8_combined.bam --outdir macs2 -n Bunina_mesc_atac_day8
 macs2 callpeak -f BAMPE -t bam/GSE174774_mesc_atac_0h_combined.bam --outdir macs2 -n GSE174774_mesc_atac_0h
 macs2 callpeak -f BAMPE -t bam/GSE174774_mesc_atac_12h_combined.bam --outdir macs2 -n GSE174774_mesc_atac_12h
 macs2 callpeak -f BAMPE -t bam/GSE174774_mesc_atac_15h_combined.bam --outdir macs2 -n GSE174774_mesc_atac_15h
@@ -22,10 +26,6 @@ macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_WT_coop_WT_atac_combined.bam
 macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_WT_coop_mut_A_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_WT_coop_mut_A_atac
 macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_WT_coop_mut_B_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_WT_coop_mut_B_atac
 macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_WT_coop_mut_null_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_WT_coop_mut_null_atac
-macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_enh_coop_WT_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_enh_coop_WT_atac
-macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_enh_coop_mut_A_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_enh_coop_mut_A_atac
-macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_enh_coop_mut_B_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_enh_coop_mut_B_atac
-macs2 callpeak -f BAMPE -t bam/mesc_Btbd11_scenario_enh_coop_mut_null_atac_combined.bam --outdir macs2 -n mesc_Btbd11_scenario_enh_coop_mut_null_atac
 macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/mesc_R1_klf4_nexus_combined.bam --outdir macs2 -n mesc_R1_klf4_nexus
 macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/mesc_R1_sox2_nexus_combined.bam --outdir macs2 -n mesc_R1_sox2_nexus
 macs2 callpeak -f BAM --keep-dup all --nomodel --shift -75 --extsize 150 -t bam/mesc_ctcf_nexus_combined.bam --outdir macs2 -n mesc_ctcf_nexus
